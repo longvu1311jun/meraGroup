@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trang Báo Cáo Số Liệu - Công Ty</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+    }
+
+    header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1rem 0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      font-size: 1.8rem;
+      font-weight: bold;
+    }
+
+    nav ul {
+      list-style: none;
+      display: flex;
+      gap: 2rem;
+    }
+
+    nav a {
+      color: white;
+      text-decoration: none;
+      transition: opacity 0.3s;
+      font-weight: 500;
+    }
+
+    nav a:hover {
+      opacity: 0.8;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 4rem 0;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      margin-bottom: 2rem;
+      opacity: 0.9;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.8rem 2rem;
+      background: white;
+      color: #667eea;
+      text-decoration: none;
+      border-radius: 5px;
+      font-weight: bold;
+      transition: transform 0.3s;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .features {
+      padding: 3rem 0;
+      background: #f8f9fa;
+    }
+
+    .features h2 {
+      text-align: center;
+      margin-bottom: 2rem;
+      font-size: 2rem;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 2rem;
+    }
+
+    .feature-card {
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+      transition: transform 0.3s;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-5px);
+    }
+
+    .feature-card h3 {
+      color: #667eea;
+      margin: 1rem 0;
+    }
+
+    footer {
+      background: #333;
+      color: white;
+      text-align: center;
+      padding: 2rem 0;
+      margin-top: 3rem;
+    }
+    
+    .alert {
+      padding: 1rem;
+      margin: 1rem auto;
+      max-width: 1200px;
+      border-radius: 5px;
+      text-align: center;
+      font-weight: 500;
+    }
+    
+    .alert-success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .alert-error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+<div th:if="${success}" class="alert alert-success" th:text="${success}"></div>
+<div th:if="${error}" class="alert alert-error" th:text="${error}"></div>
+<header>
+  <div class="container">
+    <div class="header-content">
+      <div class="logo">📊 CompanyStats</div>
+      <nav>
+        <ul>
+          <li><a href="index.html">Trang Chủ</a></li>
+          <li><a href="#reports">Báo Cáo</a></li>
+          <li><a href="#analytics">Thống Kê</a></li>
+          <li><a href="/config">Cấu Hình</a></li>
+        </ul>
+      </nav>
+    </div>
+  </div>
+</header>
+
+<section class="hero" id="home">
+  <div class="container">
+    <h1>Hệ Thống Báo Cáo Số Liệu</h1>
+    <p>Theo dõi, phân tích và quản lý dữ liệu kinh doanh của công ty một cách hiệu quả</p>
+    <a th:href="${authUrl}" class="btn">Đăng Nhập với Lark</a>
+  </div>
+</section>
+
+<section class="features" id="reports">
+  <div class="container">
+    <h2>Tính Năng Chính</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>📈 Báo Cáo Thời Gian Thực</h3>
+        <p>Xem dữ liệu cập nhật liên tục và theo dõi các chỉ số kinh doanh quan trọng</p>
+      </div>
+      <div class="feature-card">
+        <h3>📊 Biểu Đồ Chi Tiết</h3>
+        <p>Trực quan hóa dữ liệu phức tạp thông qua các biểu đồ tương tác</p>
+      </div>
+      <div class="feature-card">
+        <h3>🔍 Phân Tích Sâu</h3>
+        <p>Khám phá xu hướng và tìm hiểu sâu hơn về hiệu suất kinh doanh</p>
+      </div>
+      <div class="feature-card">
+        <h3>📥 Xuất Dữ Liệu</h3>
+        <p>Tải xuống báo cáo dưới nhiều định dạng khác nhau</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>&copy; 2025 Công Ty. Bảo lưu mọi quyền.</p>
+</footer>
+</body>
+</html>

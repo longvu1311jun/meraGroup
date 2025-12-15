@@ -8,6 +8,7 @@ public class TokenInfo {
   private int expiresIn; // seconds
   private LocalDateTime expiresAt;
   private String tokenType;
+  private LocalDateTime lastUpdated; // Thời gian cập nhật token
   
   public TokenInfo() {
   }
@@ -18,6 +19,7 @@ public class TokenInfo {
     this.expiresIn = expiresIn;
     this.tokenType = tokenType;
     this.expiresAt = LocalDateTime.now().plusSeconds(expiresIn);
+    this.lastUpdated = LocalDateTime.now();
   }
   
   public String getAccessToken() {
@@ -63,6 +65,14 @@ public class TokenInfo {
   
   public boolean isExpired() {
     return expiresAt != null && LocalDateTime.now().isAfter(expiresAt);
+  }
+  
+  public LocalDateTime getLastUpdated() {
+    return lastUpdated;
+  }
+  
+  public void setLastUpdated(LocalDateTime lastUpdated) {
+    this.lastUpdated = lastUpdated;
   }
 }
 

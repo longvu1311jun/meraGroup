@@ -271,12 +271,30 @@
           <span class="token-label">Hết Hạn Lúc:</span>
           <div class="token-value" th:text="${expiresAt}"></div>
         </div>
+        
+        <div class="token-info" th:if="${lastUpdated != null}">
+          <span class="token-label">Cập Nhật Lần Cuối:</span>
+          <div class="token-value" th:text="${lastUpdated}"></div>
+        </div>
       </div>
       
       <div th:if="${!hasToken}" class="no-token">
         <p>Chưa có token. Vui lòng <a href="/">đăng nhập</a> để lấy token.</p>
       </div>
     </div>
+
+    <!-- Refresh Button -->
+    <div style="margin-bottom: 1rem; text-align: right;">
+      <form th:action="@{/config/refresh}" method="post" style="display: inline;">
+        <button type="submit" class="action-btn" style="background: #28a745; font-size: 1rem; padding: 0.8rem 1.5rem;">
+          🔄 Làm Mới Dữ Liệu
+        </button>
+      </form>
+    </div>
+    
+    <!-- Alert messages -->
+    <div th:if="${success}" class="alert alert-success" th:text="${success}" style="margin-bottom: 1rem;"></div>
+    <div th:if="${error}" class="alert alert-error" th:text="${error}" style="margin-bottom: 1rem;"></div>
 
     <!-- Section hiển thị tất cả các Bases từ Lark -->
     <div class="table-wrapper" style="margin-bottom: 2rem;">

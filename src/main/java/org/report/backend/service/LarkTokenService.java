@@ -187,6 +187,7 @@ public class LarkTokenService {
               data.getExpiresIn(),
               data.getTokenType()
           );
+          tokenInfo.setLastUpdated(LocalDateTime.now());
           saveTokenToSession(session, tokenInfo);
           return tokenInfo;
         } else {
@@ -204,6 +205,7 @@ public class LarkTokenService {
   
   /**
    * Get current access token (refresh if needed)
+   * Auto refresh every 1 hour or if expired/expiring soon
    */
   public String getAccessToken(HttpSession session) throws Exception {
     TokenInfo currentToken = getTokenFromSession(session);
@@ -211,9 +213,28 @@ public class LarkTokenService {
       throw new RuntimeException("No token available. Please authenticate first.");
     }
     
-    // Refresh if expired or about to expire in 5 minutes
-    if (currentToken.isExpired() || 
-        LocalDateTime.now().plusMinutes(5).isAfter(currentToken.getExpiresAt())) {
+    LocalDateTime now = LocalDateTime.now();
+    boolean shouldRefresh = false;
+    
+    // Refresh if expired
+    if (currentToken.isExpired()) {
+      shouldRefresh = true;
+      log.info("Token expired, refreshing...");
+    }
+    // Refresh if about to expire in 5 minutes
+    else if (currentToken.getExpiresAt() != null && 
+             now.plusMinutes(5).isAfter(currentToken.getExpiresAt())) {
+      shouldRefresh = true;
+      log.info("Token expiring soon, refreshing...");
+    }
+    // Refresh if last updated was more than 1 hour ago
+    else if (currentToken.getLastUpdated() != null && 
+             now.isAfter(currentToken.getLastUpdated().plusHours(1))) {
+      shouldRefresh = true;
+      log.info("Token last updated more than 1 hour ago, refreshing...");
+    }
+    
+    if (shouldRefresh) {
       refreshToken(session);
       currentToken = getTokenFromSession(session);
     }

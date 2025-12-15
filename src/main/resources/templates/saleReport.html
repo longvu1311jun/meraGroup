@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sale Report</title>
+  <style>
+    :root{
+      --header:#6673ff;
+      --row-alt:#f5f3ff;
+      --text:#334155;
+      --muted:#64748b;
+      --shadow: 0 12px 30px rgba(17,24,39,.10);
+      --radius: 14px;
+    }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      background:#f7f7fb;
+      color:var(--text);
+      padding:24px;
+    }
+    .topbar{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:14px;
+      flex-wrap:wrap;
+    }
+    .title{
+      font-size:20px;
+      font-weight:900;
+      color:#0f172a;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .meta{
+      font-size:13px;
+      color:var(--muted);
+      margin-top:4px;
+    }
+    .actions{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    select, button{
+      border:1px solid #e5e7eb;
+      border-radius:10px;
+      padding:10px 12px;
+      font-size:14px;
+      background:#fff;
+      cursor:pointer;
+    }
+    button.primary{
+      background: var(--header);
+      color:#fff;
+      border:none;
+      font-weight:800;
+    }
+    button.ghost{ background:#fff; font-weight:800; }
+
+    .alert{
+      padding:12px 14px;
+      border-radius:12px;
+      background:#fff;
+      border:1px solid #e5e7eb;
+      margin:12px 0;
+      font-size:14px;
+    }
+    .alert.error{ border-color:#fecaca; background:#fff1f2; color:#991b1b; }
+
+    .table-card{
+      background:#fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .table-scroll{
+      max-height: 78vh;
+      overflow:auto;
+    }
+    table{ width:100%; border-collapse: collapse; min-width: 1200px; }
+    thead th{
+      background: var(--header);
+      color:#fff;
+      text-align:left;
+      font-weight:900;
+      padding: 14px 16px;
+      position: sticky;
+      top:0;
+      z-index:2;
+      white-space:nowrap;
+    }
+    tbody td{
+      padding: 12px 16px;
+      border-top:1px solid #eef2ff;
+      font-size:14px;
+      vertical-align:middle;
+      white-space:nowrap;
+    }
+    tbody tr:nth-child(even){ background: var(--row-alt); }
+    tbody tr:hover{ background:#edeaff; }
+
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; }
+    .center{ text-align:center; }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:6px 10px;
+      border-radius:999px;
+      font-weight:900;
+      font-size:12px;
+      color:#fff;
+    }
+    .pill.green{ background:#16a34a; }
+    .pill.orange{ background:#f97316; }
+    .pill.red{ background:#ef4444; }
+
+    .no-token{
+      max-width: 720px;
+      margin: 80px auto 0;
+      background:#fff;
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+      text-align:center;
+    }
+    .no-token a{ color: var(--header); text-decoration:none; font-weight:900; }
+  </style>
+</head>
+
+<body>
+
+<div th:if="${!hasToken}" class="no-token">
+  <h2 style="margin:0 0 10px 0;">Chưa có token 😵‍💫</h2>
+  <div style="color:var(--muted)">Đăng nhập Lark trước rồi quay lại trang report nha.</div>
+  <div style="margin-top:14px;">
+    <a href="/">👉 Về trang đăng nhập</a>
+  </div>
+</div>
+
+<div th:if="${hasToken}">
+  <div class="topbar">
+    <div>
+      <div class="title">📈 Sale Report (Tổng hợp theo tư vấn viên)</div>
+      <div class="meta">
+        Range: <b th:text="${range}">LastMonth</b>
+        <span th:if="${fetchedAt != null}"> • Fetched: <b th:text="${fetchedAt}">-</b></span>
+        <span th:if="${totalAgents != null}"> • Tư vấn viên: <b th:text="${totalAgents}">0</b></span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <form method="get" action="/saleReport">
+        <select name="range">
+          <option value="LastMonth" th:selected="${range == 'LastMonth'}">LastMonth</option>
+          <option value="ThisMonth" th:selected="${range == 'ThisMonth'}">ThisMonth</option>
+          <option value="Last7Days" th:selected="${range == 'Last7Days'}">Last7Days</option>
+        </select>
+        <button class="ghost" type="submit">Load</button>
+      </form>
+
+      <form method="post" th:action="@{/saleReport/refresh}">
+        <input type="hidden" name="range" th:value="${range}" />
+        <button class="primary" type="submit">🔄 Refresh</button>
+      </form>
+    </div>
+  </div>
+
+  <div th:if="${error}" class="alert error">
+    <b>Lỗi:</b> <span th:text="${error}"></span>
+  </div>
+
+  <div class="table-card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+        <tr>
+          <th style="width:70px;">#</th>
+          <th style="min-width:220px;">Tư vấn viên</th>
+          <th class="center">Nhu cầu</th>
+          <th class="center">Trùng</th>
+          <th class="center">Rác</th>
+          <th class="center">Không tương tác</th>
+          <th class="center">Chốt nóng</th>
+          <th class="center">Chốt cũ</th>
+          <th class="center">Đơn hủy</th>
+          <th class="center">Tổng mess</th>
+          <th class="center">Tổng đơn</th>
+          <th class="center">Đơn/mess nhu cầu</th>
+          <th class="center">Đơn/mess tổng</th>
+          <th class="center">Tỉ lệ hủy</th>
+          <th style="min-width:220px;">Table ID</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        <tr th:each="r, st : ${rows}">
+          <td th:text="${st.count}">1</td>
+          <td th:text="${r.tableName}">Nguyễn Văn A</td>
+
+          <td class="center" th:text="${r.nhuCau}">0</td>
+          <td class="center" th:text="${r.trung}">0</td>
+          <td class="center" th:text="${r.rac}">0</td>
+          <td class="center" th:text="${r.khongTuongTac}">0</td>
+
+          <td class="center" th:text="${r.chotNong}">0</td>
+          <td class="center" th:text="${r.chotCu}">0</td>
+
+          <td class="center" th:text="${r.donHuy}">0</td>
+
+          <td class="center" th:text="${r.tongMess}">0</td>
+          <td class="center" th:text="${r.tongDon}">0</td>
+
+          <td class="center" th:text="${r.donPerMessNhuCau}">0.00</td>
+          <td class="center" th:text="${r.donPerMessTong}">0.00</td>
+
+          <td class="center">
+            <span
+                th:text="${r.tiLeHuyPercent} + '%'"
+                th:class="'pill ' + (${r.tiLeHuyPercent} <= 5 ? 'green' : (${r.tiLeHuyPercent} <= 10 ? 'orange' : 'red'))">
+              0%
+            </span>
+          </td>
+
+          <td class="mono" th:text="${r.tableId}">tblxxx</td>
+        </tr>
+
+        <tr th:if="${#lists.isEmpty(rows)}">
+          <td colspan="15" style="text-align:center; padding:20px; color:var(--muted);">
+            Không có dữ liệu (hoặc filter không match).
+          </td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scrollable Table</title>
+  <style>
+    :root{
+      --header:#6673ff;
+      --row-alt:#f5f3ff;
+      --text:#4b5563;
+      --shadow: 0 12px 30px rgba(17,24,39,.12);
+      --radius: 14px;
+    }
+
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background:#f7f8fc;
+      color:#111827;
+    }
+
+    /* Card bao bảng */
+    .table-card{
+      max-width: 90%;
+      margin: 48px auto;
+      background:#fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden; /* giữ bo góc cho header */
+    }
+
+    /* KHU VỰC CUỘN RIÊNG */
+    .table-scroll{
+      max-height: 520px;         /* chỉnh chiều cao để có scroll */
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    table{
+      width:100%;
+      border-collapse: collapse;
+    }
+
+    thead th{
+      background: var(--header);
+      color:#fff;
+      text-align:left;
+      font-weight:700;
+      padding: 18px 22px;
+      position: sticky; /* header dính khi cuộn */
+      top: 0;
+      z-index: 2;
+    }
+
+    tbody td{
+      padding: 18px 22px;
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    tbody tr:nth-child(even){
+      background: var(--row-alt);
+    }
+
+    /* nhìn giống ảnh hơn tí */
+    tbody tr:hover{
+      background: #edeaff;
+    }
+
+    /* optional: style scrollbar (Chrome/Edge) */
+    .table-scroll::-webkit-scrollbar{ width: 10px; }
+    .table-scroll::-webkit-scrollbar-track{ background: transparent; }
+    .table-scroll::-webkit-scrollbar-thumb{
+      background: rgba(17,24,39,.18);
+      border-radius: 999px;
+      border: 2px solid #fff;
+    }
+
+    /* responsive nhỏ màn */
+    @media (max-width: 720px){
+      thead th, tbody td{ padding: 14px 14px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="table-card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+                <th>Tư vấn viên</th>
+                <th>Nhu cầu</th>
+                <th>Trùng</th>
+                <th>Rác</th>
+                <th>Không tương tác</th>
+                <th>Chốt nóng</th>
+                <th>Chốt cũ</th>
+                <th>Đơn huỷ</th>
+                <th>Tổng mess</th>
+                <th>Tổng đơn</th>
+                <th>Đơn/mess nhu cầu</th>
+                <th>Đơn/mess tổng</th>
+                <th>Tỉ lệ huỷ</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr><td>Nguyễn Văn A</td><td class="small-muted">12</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">50</td><td class="small-muted">10</td><td class="small-muted">0.83</td><td class="small-muted">0.20</td><td><span class="badge-accent">10%</span></td></tr>
+              <tr><td>Trần Thị B</td><td class="small-muted">8</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">2</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">30</td><td class="small-muted">6</td><td class="small-muted">0.75</td><td class="small-muted">0.20</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Lê Văn C</td><td class="small-muted">15</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">5</td><td class="small-muted">4</td><td class="small-muted">1</td><td class="small-muted">2</td><td class="small-muted">70</td><td class="small-muted">18</td><td class="small-muted">1.20</td><td class="small-muted">0.26</td><td><span class="badge-accent">11%</span></td></tr>
+              <tr><td>Phạm Thị D</td><td class="small-muted">9</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">42</td><td class="small-muted">7</td><td class="small-muted">0.78</td><td class="small-muted">0.17</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Hoàng Văn E</td><td class="small-muted">20</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">6</td><td class="small-muted">6</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">95</td><td class="small-muted">28</td><td class="small-muted">1.40</td><td class="small-muted">0.29</td><td><span class="badge-accent">3%</span></td></tr>
+              <tr><td>Đỗ Thị F</td><td class="small-muted">5</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">18</td><td class="small-muted">2</td><td class="small-muted">0.40</td><td class="small-muted">0.11</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Vũ Văn G</td><td class="small-muted">11</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">48</td><td class="small-muted">9</td><td class="small-muted">0.82</td><td class="small-muted">0.19</td><td><span class="badge-accent">11%</span></td></tr>
+              <tr><td>Ngô Thị H</td><td class="small-muted">7</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">25</td><td class="small-muted">4</td><td class="small-muted">0.57</td><td class="small-muted">0.16</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Phan Văn I</td><td class="small-muted">14</td><td class="small-muted">2</td><td class="small-muted">2</td><td class="small-muted">5</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">62</td><td class="small-muted">15</td><td class="small-muted">1.07</td><td class="small-muted">0.24</td><td><span class="badge-accent">6%</span></td></tr>
+              <tr><td>Trương Thị J</td><td class="small-muted">6</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">22</td><td class="small-muted">3</td><td class="small-muted">0.50</td><td class="small-muted">0.14</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Đặng Văn K</td><td class="small-muted">18</td><td class="small-muted">5</td><td class="small-muted">2</td><td class="small-muted">7</td><td class="small-muted">5</td><td class="small-muted">2</td><td class="small-muted">2</td><td class="small-muted">88</td><td class="small-muted">22</td><td class="small-muted">1.22</td><td class="small-muted">0.25</td><td><span class="badge-accent">9%</span></td></tr>
+              <tr><td>Hà Thị L</td><td class="small-muted">4</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">12</td><td class="small-muted">1</td><td class="small-muted">0.25</td><td class="small-muted">0.08</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Văn Quang M</td><td class="small-muted">13</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">54</td><td class="small-muted">12</td><td class="small-muted">0.92</td><td class="small-muted">0.22</td><td><span class="badge-accent">8%</span></td></tr>
+              <tr><td>Nguyễn Thị N</td><td class="small-muted">10</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">45</td><td class="small-muted">9</td><td class="small-muted">0.90</td><td class="small-muted">0.20</td><td><span class="badge-accent">11%</span></td></tr>
+              <tr><td>Trần Văn O</td><td class="small-muted">16</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">6</td><td class="small-muted">4</td><td class="small-muted">1</td><td class="small-muted">2</td><td class="small-muted">76</td><td class="small-muted">20</td><td class="small-muted">1.25</td><td class="small-muted">0.26</td><td><span class="badge-accent">10%</span></td></tr>
+              <tr><td>Phùng Thị P</td><td class="small-muted">3</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">8</td><td class="small-muted">0</td><td class="small-muted">0.00</td><td class="small-muted">0.00</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Đỗ Văn Q</td><td class="small-muted">17</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">5</td><td class="small-muted">5</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">82</td><td class="small-muted">21</td><td class="small-muted">1.24</td><td class="small-muted">0.26</td><td><span class="badge-accent">5%</span></td></tr>
+              <tr><td>Huỳnh Thị R</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">6</td><td class="small-muted">1</td><td class="small-muted">0.50</td><td class="small-muted">0.17</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Nguyễn Văn S</td><td class="small-muted">19</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">8</td><td class="small-muted">6</td><td class="small-muted">2</td><td class="small-muted">2</td><td class="small-muted">100</td><td class="small-muted">25</td><td class="small-muted">1.32</td><td class="small-muted">0.25</td><td><span class="badge-accent">8%</span></td></tr>
+              <tr><td>Trần Thị T</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">3</td><td class="small-muted">0</td><td class="small-muted">0.00</td><td class="small-muted">0.00</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Lê Thị U</td><td class="small-muted">21</td><td class="small-muted">5</td><td class="small-muted">4</td><td class="small-muted">9</td><td class="small-muted">7</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">110</td><td class="small-muted">30</td><td class="small-muted">1.43</td><td class="small-muted">0.27</td><td><span class="badge-accent">3%</span></td></tr>
+              <tr><td>Phạm Văn V</td><td class="small-muted">22</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">6</td><td class="small-muted">8</td><td class="small-muted">2</td><td class="small-muted">2</td><td class="small-muted">120</td><td class="small-muted">33</td><td class="small-muted">1.50</td><td class="small-muted">0.28</td><td><span class="badge-accent">6%</span></td></tr>
+              <tr><td>Võ Thị W</td><td class="small-muted">6</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">24</td><td class="small-muted">4</td><td class="small-muted">0.67</td><td class="small-muted">0.17</td><td><span class="badge-accent">25%</span></td></tr>
+              <tr><td>Ngô Văn X</td><td class="small-muted">9</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">40</td><td class="small-muted">6</td><td class="small-muted">0.67</td><td class="small-muted">0.15</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Trịnh Thị Y</td><td class="small-muted">8</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">2</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">34</td><td class="small-muted">5</td><td class="small-muted">0.62</td><td class="small-muted">0.15</td><td><span class="badge-accent">20%</span></td></tr>
+              <tr><td>Phan Văn Z</td><td class="small-muted">12</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">58</td><td class="small-muted">11</td><td class="small-muted">0.92</td><td class="small-muted">0.19</td><td><span class="badge-accent">9%</span></td></tr>
+              <tr><td>Nguyễn Văn AA</td><td class="small-muted">14</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">5</td><td class="small-muted">4</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">68</td><td class="small-muted">14</td><td class="small-muted">1.00</td><td class="small-muted">0.21</td><td><span class="badge-accent">7%</span></td></tr>
+              <tr><td>Trần Thị BB</td><td class="small-muted">11</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">50</td><td class="small-muted">9</td><td class="small-muted">0.82</td><td class="small-muted">0.18</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Lê Văn CC</td><td class="small-muted">10</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">46</td><td class="small-muted">8</td><td class="small-muted">0.80</td><td class="small-muted">0.17</td><td><span class="badge-accent">12%</span></td></tr>
+              <tr><td>Phạm Thị DD</td><td class="small-muted">7</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">28</td><td class="small-muted">3</td><td class="small-muted">0.43</td><td class="small-muted">0.11</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Hoàng Văn EE</td><td class="small-muted">23</td><td class="small-muted">6</td><td class="small-muted">4</td><td class="small-muted">10</td><td class="small-muted">9</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">130</td><td class="small-muted">38</td><td class="small-muted">1.65</td><td class="small-muted">0.29</td><td><span class="badge-accent">5%</span></td></tr>
+              <tr><td>Đỗ Thị FF</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">5</td><td class="small-muted">0</td><td class="small-muted">0.00</td><td class="small-muted">0.00</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Vũ Văn GG</td><td class="small-muted">15</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">5</td><td class="small-muted">4</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">72</td><td class="small-muted">17</td><td class="small-muted">1.13</td><td class="small-muted">0.24</td><td><span class="badge-accent">6%</span></td></tr>
+              <tr><td>Ngô Thị HH</td><td class="small-muted">9</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">36</td><td class="small-muted">5</td><td class="small-muted">0.56</td><td class="small-muted">0.14</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Phan Văn II</td><td class="small-muted">12</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">60</td><td class="small-muted">13</td><td class="small-muted">1.08</td><td class="small-muted">0.22</td><td><span class="badge-accent">7%</span></td></tr>
+              <tr><td>Trương Thị JJ</td><td class="small-muted">8</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">30</td><td class="small-muted">4</td><td class="small-muted">0.50</td><td class="small-muted">0.13</td><td><span class="badge-accent">0%</span></td></tr>
+              <tr><td>Đặng Văn KK</td><td class="small-muted">17</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">6</td><td class="small-muted">5</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">86</td><td class="small-muted">19</td><td class="small-muted">1.12</td><td class="small-muted">0.22</td><td><span class="badge-accent">5%</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</body>
+</html>

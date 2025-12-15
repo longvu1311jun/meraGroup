@@ -36,7 +36,7 @@ public class LarkWikiService {
    * Get all nodes (bases) from space
    */
   public List<LarkNode> getAllNodes(HttpSession session) throws Exception {
-    String accessToken = tokenService.getAccessToken(session);
+    String accessToken = tokenService.getAccessToken(session, false); // Don't force hourly refresh
     String url = String.format(
         "https://open.larksuite.com/open-apis/wiki/v2/spaces/%s/nodes",
         LARK_SPACE_ID
@@ -96,7 +96,7 @@ public class LarkWikiService {
    * Get parent node token from space
    */
   private String getParentNodeToken(HttpSession session) throws Exception {
-    String accessToken = tokenService.getAccessToken(session);
+    String accessToken = tokenService.getAccessToken(session, false); // Don't force hourly refresh
     String url = String.format(
         "https://open.larksuite.com/open-apis/wiki/v2/spaces/%s/nodes",
         LARK_SPACE_ID
@@ -149,7 +149,7 @@ public class LarkWikiService {
       return Collections.emptyList();
     }
     
-    String accessToken = tokenService.getAccessToken(session);
+    String accessToken = tokenService.getAccessToken(session, false); // Don't force hourly refresh
     String url = String.format(
         "https://open.larksuite.com/open-apis/wiki/v2/spaces/%s/nodes?parent_node_token=%s",
         LARK_SPACE_ID,
@@ -238,7 +238,7 @@ public class LarkWikiService {
       return Collections.emptyList();
     }
     
-    String accessToken = tokenService.getAccessToken(session);
+    String accessToken = tokenService.getAccessToken(session, false); // Don't force hourly refresh
     String url = String.format(
         "https://open.larksuite.com/open-apis/wiki/v2/spaces/%s/nodes?parent_node_token=%s",
         LARK_SPACE_ID,

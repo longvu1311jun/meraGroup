@@ -1,0 +1,321 @@
+package org.report.backend.service;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.servlet.http.HttpSession;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import org.report.backend.model.BitableRecord;
+import org.report.backend.model.BitableTable;
+import org.report.backend.model.SaleSummaryRow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class BitableService {
+
+  private static final Logger log = LoggerFactory.getLogger(BitableService.class);
+
+  private static final String SALE_BITABLE_APP_TOKEN = "VsLjbnWlfapGXhszsvqlRm6QgIf";
+  private static final String SALE_VIEW_ID = "vewE3Ope6x";
+
+  private static final int DEFAULT_TABLE_PAGE_SIZE = 50;
+  private static final int DEFAULT_RECORD_PAGE_SIZE = 500;
+
+  private final RestTemplate restTemplate;
+  private final LarkTokenService tokenService;
+
+  public BitableService(LarkTokenService tokenService) {
+    this.restTemplate = new RestTemplate();
+    this.tokenService = tokenService;
+  }
+
+  /** Lấy tables SALE, chỉ giữ table name có "_" */
+  public List<BitableTable> getSaleTables(HttpSession session) throws Exception {
+    List<BitableTable> all = listTables(session, SALE_BITABLE_APP_TOKEN, DEFAULT_TABLE_PAGE_SIZE);
+    List<BitableTable> filtered = new ArrayList<>();
+    for (BitableTable t : all) {
+      String name = (t != null) ? t.getName() : null;
+      if (name != null && name.contains("_")) filtered.add(t);
+    }
+    return filtered;
+  }
+
+  /** ✅ Build summary theo 1 table (đếm status trong lúc search + paginate) */
+  public SaleSummaryRow buildSaleSummaryForTable(HttpSession session, BitableTable table, String timeRangeValue)
+      throws Exception {
+
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    long nhuCau = 0, trung = 0, rac = 0, khongTuongTac = 0;
+    long chotNong = 0, chotCu = 0, donHuy = 0;
+    long tongMess = 0;
+    long tongDon = 0; // heuristic: status chứa "chốt" hoặc "đơn"
+
+    String tableId = table.getTableId();
+    String tableName = table.getName();
+
+    String pageToken = null;
+    boolean hasMore = true;
+
+    while (hasMore) {
+      String url = buildSearchRecordsUrl(SALE_BITABLE_APP_TOKEN, tableId, DEFAULT_RECORD_PAGE_SIZE, pageToken);
+      RecordSearchRequest bodyReq = RecordSearchRequest.forSale(SALE_VIEW_ID, timeRangeValue);
+
+      HttpEntity<RecordSearchRequest> entity = new HttpEntity<>(bodyReq, headers);
+
+      ResponseEntity<RecordSearchResponse> response;
+      try {
+        response = restTemplate.exchange(url, HttpMethod.POST, entity, RecordSearchResponse.class);
+      } catch (RestClientException e) {
+        log.error("Error calling Bitable search records API: {}", e.getMessage(), e);
+        throw new RuntimeException("Failed to call Bitable search records API: " + e.getMessage(), e);
+      }
+
+      if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+        throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
+      }
+
+      RecordSearchResponse body = response.getBody();
+      if (body.code != 0) {
+        throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
+      }
+
+      List<BitableRecord> items = (body.data != null) ? body.data.items : null;
+      if (items != null) {
+        for (BitableRecord r : items) {
+          tongMess++;
+
+          Map<String, Object> fields = r.getFields();
+          Object rawStatus = (fields != null) ? fields.get("Trạng thái mess") : null;
+          String status = normalizeStatus(extractText(rawStatus));
+
+          if (status.isEmpty()) continue;
+
+          // buckets
+          if (status.contains("nhu cầu")) nhuCau++;
+          else if (status.contains("trùng")) trung++;
+          else if (status.contains("rác")) rac++;
+          else if (status.contains("không tương tác")) khongTuongTac++;
+          else if (status.contains("chốt nóng")) chotNong++;
+          else if (status.contains("chốt cũ")) chotCu++;
+          else if (status.contains("đơn hủy") || status.contains("đơn huỷ")) donHuy++;
+
+          // ✅ heuristic tính "đơn"
+          // nếu status có "chốt" hoặc "đơn" thì tính là 1 đơn (để match bảng cũ)
+          if (status.contains("chốt") || status.contains("đơn")) {
+            tongDon++;
+          }
+        }
+      }
+
+      hasMore = body.data != null && Boolean.TRUE.equals(body.data.hasMore);
+      pageToken = (body.data != null) ? body.data.pageToken : null;
+
+      if (hasMore && (pageToken == null || pageToken.isBlank())) {
+        log.warn("Search records has_more=true but page_token is empty. Break to avoid infinite loop.");
+        break;
+      }
+    }
+
+    SaleSummaryRow row = new SaleSummaryRow();
+    row.setTableName(tableName);
+    row.setTableId(tableId);
+
+    row.setNhuCau(nhuCau);
+    row.setTrung(trung);
+    row.setRac(rac);
+    row.setKhongTuongTac(khongTuongTac);
+
+    row.setChotNong(chotNong);
+    row.setChotCu(chotCu);
+
+    row.setDonHuy(donHuy);
+
+    row.setTongMess(tongMess);
+    row.setTongDon(tongDon);
+
+    row.setDonPerMessNhuCau(nhuCau == 0 ? 0.0 : round2((double) tongDon / (double) nhuCau));
+    row.setDonPerMessTong(tongMess == 0 ? 0.0 : round2((double) tongDon / (double) tongMess));
+
+    int tiLeHuy = (tongDon == 0) ? 0 : (int) Math.round(((double) donHuy * 100.0) / (double) tongDon);
+    row.setTiLeHuyPercent(tiLeHuy);
+
+    return row;
+  }
+
+  // ================== list tables ==================
+
+  private List<BitableTable> listTables(HttpSession session, String appToken, int pageSize) throws Exception {
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+    List<BitableTable> all = new ArrayList<>();
+    String pageToken = null;
+    boolean hasMore = true;
+
+    while (hasMore) {
+      String url = buildListTablesUrl(appToken, pageSize, pageToken);
+
+      try {
+        ResponseEntity<BitableTablesResponse> response = restTemplate.exchange(
+            url, HttpMethod.GET, entity, BitableTablesResponse.class
+        );
+
+        if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+          throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
+        }
+
+        BitableTablesResponse body = response.getBody();
+        if (body.code != 0) throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
+
+        if (body.data != null && body.data.items != null) all.addAll(body.data.items);
+
+        hasMore = body.data != null && Boolean.TRUE.equals(body.data.hasMore);
+        pageToken = (body.data != null) ? body.data.pageToken : null;
+
+        if (hasMore && (pageToken == null || pageToken.isBlank())) break;
+
+      } catch (RestClientException e) {
+        log.error("Error calling Bitable list tables API: {}", e.getMessage(), e);
+        throw new RuntimeException("Failed to call Bitable list tables API: " + e.getMessage(), e);
+      }
+    }
+    return all;
+  }
+
+  private String buildListTablesUrl(String appToken, int pageSize, String pageToken) {
+    String base = "https://open.larksuite.com/open-apis/bitable/v1/apps/" + appToken + "/tables";
+    String url = base + "?page_size=" + pageSize;
+    if (pageToken != null && !pageToken.isBlank()) url += "&page_token=" + pageToken;
+    return url;
+  }
+
+  private static class BitableTablesResponse {
+    @JsonProperty("code") int code;
+    @JsonProperty("msg") String msg;
+    @JsonProperty("data") TablesData data;
+  }
+
+  private static class TablesData {
+    @JsonProperty("items") List<BitableTable> items;
+    @JsonProperty("page_token") String pageToken;
+    @JsonProperty("has_more") Boolean hasMore;
+  }
+
+  // ================== search records ==================
+
+  private String buildSearchRecordsUrl(String appToken, String tableId, int pageSize, String pageToken) {
+    String base = "https://open.larksuite.com/open-apis/bitable/v1/apps/" + appToken
+        + "/tables/" + tableId + "/records/search";
+    String url = base + "?page_size=" + pageSize;
+    if (pageToken != null && !pageToken.isBlank()) url += "&page_token=" + pageToken;
+    return url;
+  }
+
+  private static class RecordSearchResponse {
+    @JsonProperty("code") int code;
+    @JsonProperty("msg") String msg;
+    @JsonProperty("data") RecordSearchData data;
+  }
+
+  private static class RecordSearchData {
+    @JsonProperty("items") List<BitableRecord> items;
+    @JsonProperty("page_token") String pageToken;
+    @JsonProperty("has_more") Boolean hasMore;
+  }
+
+  private static class RecordSearchRequest {
+    @JsonProperty("automatic_fields") boolean automaticFields;
+    @JsonProperty("field_names") List<String> fieldNames;
+    @JsonProperty("filter") Filter filter;
+    @JsonProperty("view_id") String viewId;
+
+    static RecordSearchRequest forSale(String viewId, String timeRangeValue) {
+      RecordSearchRequest req = new RecordSearchRequest();
+      req.automaticFields = false;
+      req.fieldNames = List.of("Ngày tạo", "Điện Thoại", "Trạng thái mess");
+      req.viewId = viewId;
+
+      Condition c = new Condition();
+      c.fieldName = "Ngày tạo";
+      c.operator = "is";
+      c.value = List.of(timeRangeValue);
+
+      Filter f = new Filter();
+      f.conjunction = "and";
+      f.conditions = List.of(c);
+
+      req.filter = f;
+      return req;
+    }
+  }
+
+  private static class Filter {
+    @JsonProperty("conditions") List<Condition> conditions;
+    @JsonProperty("conjunction") String conjunction;
+  }
+
+  private static class Condition {
+    @JsonProperty("field_name") String fieldName;
+    @JsonProperty("operator") String operator;
+    @JsonProperty("value") List<String> value;
+  }
+
+  // ================== helpers ==================
+
+  private String normalizeStatus(String s) {
+    if (s == null) return "";
+    return s.trim().toLowerCase();
+  }
+
+  private String extractText(Object v) {
+    if (v == null) return "";
+    if (v instanceof String s) return s;
+    if (v instanceof Number n) return String.valueOf(n);
+
+    if (v instanceof Map<?, ?> map) {
+      Object name = map.get("name");
+      if (name != null) return String.valueOf(name);
+      Object text = map.get("text");
+      if (text != null) return String.valueOf(text);
+      Object value = map.get("value");
+      if (value != null) return String.valueOf(value);
+    }
+
+    if (v instanceof List<?> list) {
+      StringBuilder sb = new StringBuilder();
+      for (Object it : list) {
+        String part = extractText(it);
+        if (!part.isBlank()) {
+          if (!sb.isEmpty()) sb.append(", ");
+          sb.append(part);
+        }
+      }
+      return sb.toString();
+    }
+
+    return String.valueOf(v);
+  }
+
+  private double round2(double x) {
+    return BigDecimal.valueOf(x).setScale(2, RoundingMode.HALF_UP).doubleValue();
+  }
+}

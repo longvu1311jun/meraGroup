@@ -205,9 +205,18 @@ public class LarkTokenService {
   
   /**
    * Get current access token (refresh if needed)
-   * Auto refresh every 1 hour or if expired/expiring soon
+   * Auto refresh if expired or expiring soon (within 5 minutes)
    */
   public String getAccessToken(HttpSession session) throws Exception {
+    return getAccessToken(session, false);
+  }
+  
+  /**
+   * Get current access token with option to force refresh
+   * @param session HTTP session
+   * @param forceRefreshHourly if true, refresh if last updated more than 1 hour ago
+   */
+  public String getAccessToken(HttpSession session, boolean forceRefreshHourly) throws Exception {
     TokenInfo currentToken = getTokenFromSession(session);
     if (currentToken == null) {
       throw new RuntimeException("No token available. Please authenticate first.");
@@ -227,16 +236,26 @@ public class LarkTokenService {
       shouldRefresh = true;
       log.info("Token expiring soon, refreshing...");
     }
-    // Refresh if last updated was more than 1 hour ago
-    else if (currentToken.getLastUpdated() != null && 
+    // Refresh if last updated was more than 1 hour ago (only if forceRefreshHourly is true)
+    else if (forceRefreshHourly && currentToken.getLastUpdated() != null && 
              now.isAfter(currentToken.getLastUpdated().plusHours(1))) {
       shouldRefresh = true;
       log.info("Token last updated more than 1 hour ago, refreshing...");
     }
     
     if (shouldRefresh) {
-      refreshToken(session);
-      currentToken = getTokenFromSession(session);
+      try {
+        refreshToken(session);
+        currentToken = getTokenFromSession(session);
+      } catch (Exception e) {
+        log.error("Failed to refresh token: {}", e.getMessage());
+        // If refresh fails, try to use current token if not expired
+        if (currentToken.isExpired()) {
+          throw new RuntimeException("Token expired and refresh failed. Please login again: " + e.getMessage(), e);
+        }
+        // If not expired yet, continue with current token
+        log.warn("Using current token despite refresh failure");
+      }
     }
     
     return currentToken.getAccessToken();
@@ -255,6 +274,31 @@ public class LarkTokenService {
   public boolean hasToken(HttpSession session) {
     TokenInfo token = getTokenFromSession(session);
     return token != null && token.getAccessToken() != null;
+  }
+  
+  /**
+   * Auto refresh token if last updated more than 1 hour ago
+   * This is called periodically to keep token fresh
+   */
+  public void autoRefreshTokenIfNeeded(HttpSession session) {
+    try {
+      TokenInfo token = getTokenFromSession(session);
+      if (token == null) {
+        return;
+      }
+      
+      LocalDateTime now = LocalDateTime.now();
+      // Refresh if last updated more than 1 hour ago and not expired
+      if (token.getLastUpdated() != null && 
+          now.isAfter(token.getLastUpdated().plusHours(1)) &&
+          !token.isExpired()) {
+        log.info("Auto-refreshing token (1 hour elapsed since last update)");
+        refreshToken(session);
+      }
+    } catch (Exception e) {
+      log.warn("Failed to auto-refresh token: {}", e.getMessage());
+      // Don't throw exception, just log warning
+    }
   }
   
   // Inner classes for JSON response mapping

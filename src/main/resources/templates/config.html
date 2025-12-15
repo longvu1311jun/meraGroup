@@ -5,117 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cấu Hình Dữ Liệu - Công Ty</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       line-height: 1.6;
       color: #333;
       background: #f8f9fa;
     }
-
     header {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
       padding: 1rem 0;
       box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 20px;
-    }
-
-    .header-content {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .logo {
-      font-size: 1.8rem;
-      font-weight: bold;
-    }
-
-    nav ul {
-      list-style: none;
-      display: flex;
-      gap: 2rem;
-    }
-
-    nav a {
-      color: white;
-      text-decoration: none;
-      transition: opacity 0.3s;
-      font-weight: 500;
-    }
-
-    nav a:hover {
-      opacity: 0.8;
-    }
-
-    .content-section {
-      padding: 3rem 0;
-    }
-
-    .section-title {
-      font-size: 2rem;
-      margin-bottom: 2rem;
-      color: #667eea;
-    }
-
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+    .header-content { display: flex; justify-content: space-between; align-items: center; }
+    .logo { font-size: 1.8rem; font-weight: bold; }
+    nav ul { list-style: none; display: flex; gap: 2rem; }
+    nav a { color: white; text-decoration: none; transition: opacity 0.3s; font-weight: 500; }
+    nav a:hover { opacity: 0.8; }
+    .content-section { padding: 3rem 0; }
+    .section-title { font-size: 2rem; margin-bottom: 2rem; color: #667eea; }
     .table-wrapper {
       background: white;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       overflow: hidden;
     }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    thead {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-
-    th {
-      padding: 1.2rem;
-      text-align: left;
-      font-weight: 600;
-      border-bottom: 2px solid #667eea;
-    }
-
-    td {
-      padding: 1rem 1.2rem;
-      border-bottom: 1px solid #e0e0e0;
-    }
-
-    tbody tr {
-      transition: background-color 0.3s;
-    }
-
-    tbody tr:hover {
-      background-color: #f0f4ff;
-    }
-
-    tbody tr:last-child td {
-      border-bottom: none;
-    }
-
-    .stt {
-      color: #667eea;
-      font-weight: 600;
-      width: 50px;
-    }
-
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+    th { padding: 1.2rem; text-align: left; font-weight: 600; border-bottom: 2px solid #667eea; }
+    td { padding: 1rem 1.2rem; border-bottom: 1px solid #e0e0e0; }
+    tbody tr { transition: background-color 0.3s; }
+    tbody tr:hover { background-color: #f0f4ff; }
+    tbody tr:last-child td { border-bottom: none; }
+    .stt { color: #667eea; font-weight: 600; width: 50px; }
     .action-btn {
       display: inline-block;
       padding: 0.5rem 1rem;
@@ -129,27 +53,11 @@
       transition: background 0.3s;
       font-size: 0.9rem;
     }
+    .action-btn:hover { background: #764ba2; }
+    .action-btn.delete { background: #dc3545; }
+    .action-btn.delete:hover { background: #c82333; }
+    footer { background: #333; color: white; text-align: center; padding: 2rem 0; margin-top: 3rem; }
 
-    .action-btn:hover {
-      background: #764ba2;
-    }
-
-    .action-btn.delete {
-      background: #dc3545;
-    }
-
-    .action-btn.delete:hover {
-      background: #c82333;
-    }
-
-    footer {
-      background: #333;
-      color: white;
-      text-align: center;
-      padding: 2rem 0;
-      margin-top: 3rem;
-    }
-    
     .token-section {
       background: white;
       border-radius: 8px;
@@ -157,18 +65,8 @@
       padding: 2rem;
       margin-bottom: 2rem;
     }
-    
-    .token-info {
-      margin-bottom: 1rem;
-    }
-    
-    .token-label {
-      font-weight: 600;
-      color: #667eea;
-      margin-bottom: 0.5rem;
-      display: block;
-    }
-    
+    .token-info { margin-bottom: 1rem; }
+    .token-label { font-weight: 600; color: #667eea; margin-bottom: 0.5rem; display: block; }
     .token-value {
       background: #f8f9fa;
       padding: 0.8rem;
@@ -179,7 +77,6 @@
       font-size: 0.9rem;
       color: #333;
     }
-    
     .token-status {
       display: inline-block;
       padding: 0.3rem 0.8rem;
@@ -187,32 +84,11 @@
       font-size: 0.85rem;
       font-weight: 600;
     }
-    
-    .token-status.valid {
-      background: #d4edda;
-      color: #155724;
-    }
-    
-    .token-status.expired {
-      background: #f8d7da;
-      color: #721c24;
-    }
-    
-    .no-token {
-      text-align: center;
-      padding: 2rem;
-      color: #666;
-    }
-    
-    .no-token a {
-      color: #667eea;
-      text-decoration: none;
-      font-weight: 600;
-    }
-    
-    .no-token a:hover {
-      text-decoration: underline;
-    }
+    .token-status.valid { background: #d4edda; color: #155724; }
+    .token-status.expired { background: #f8d7da; color: #721c24; }
+    .no-token { text-align: center; padding: 2rem; color: #666; }
+    .no-token a { color: #667eea; text-decoration: none; font-weight: 600; }
+    .no-token a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -236,54 +112,52 @@
   <div class="container">
     <h1 class="section-title">⚙️ Cấu Hình Dữ Liệu</h1>
 
-    <!-- Token Information Section -->
     <div class="token-section">
       <h2 style="margin-bottom: 1.5rem; color: #667eea;">🔑 Thông Tin Token</h2>
-      
+
       <div th:if="${hasToken}">
         <div class="token-info">
           <span class="token-label">Trạng Thái:</span>
           <span th:class="${isExpired} ? 'token-status expired' : 'token-status valid'"
                 th:text="${isExpired} ? 'Đã Hết Hạn' : 'Còn Hiệu Lực'"></span>
         </div>
-        
+
         <div class="token-info">
           <span class="token-label">Access Token:</span>
           <div class="token-value" th:text="${accessToken}"></div>
         </div>
-        
+
         <div class="token-info">
           <span class="token-label">Refresh Token:</span>
           <div class="token-value" th:text="${refreshToken}"></div>
         </div>
-        
+
         <div class="token-info">
           <span class="token-label">Token Type:</span>
           <div class="token-value" th:text="${tokenType}"></div>
         </div>
-        
+
         <div class="token-info">
           <span class="token-label">Thời Gian Hết Hạn (giây):</span>
           <div class="token-value" th:text="${expiresIn}"></div>
         </div>
-        
+
         <div class="token-info">
           <span class="token-label">Hết Hạn Lúc:</span>
           <div class="token-value" th:text="${expiresAt}"></div>
         </div>
-        
+
         <div class="token-info" th:if="${lastUpdated != null}">
           <span class="token-label">Cập Nhật Lần Cuối:</span>
           <div class="token-value" th:text="${lastUpdated}"></div>
         </div>
       </div>
-      
+
       <div th:if="${!hasToken}" class="no-token">
         <p>Chưa có token. Vui lòng <a href="/">đăng nhập</a> để lấy token.</p>
       </div>
     </div>
 
-    <!-- Refresh Button -->
     <div style="margin-bottom: 1rem; text-align: right;">
       <form th:action="@{/config/refresh}" method="post" style="display: inline;">
         <button type="submit" class="action-btn" style="background: #28a745; font-size: 1rem; padding: 0.8rem 1.5rem;">
@@ -291,12 +165,11 @@
         </button>
       </form>
     </div>
-    
-    <!-- Alert messages -->
+
     <div th:if="${success}" class="alert alert-success" th:text="${success}" style="margin-bottom: 1rem;"></div>
     <div th:if="${error}" class="alert alert-error" th:text="${error}" style="margin-bottom: 1rem;"></div>
 
-    <!-- Section hiển thị tất cả các Bases từ Lark -->
+    <!-- Bases -->
     <div class="table-wrapper" style="margin-bottom: 2rem;">
       <h2 style="margin-bottom: 1rem; color: #667eea;">📋 Danh Sách Tất Cả Bases (Lark Nodes)</h2>
       <table>
@@ -312,7 +185,6 @@
         </thead>
         <tbody>
         <th:block th:each="node, iterStat : ${allBases}">
-          <!-- Base row -->
           <tr style="background-color: #f0f4ff;">
             <td class="stt" th:text="${iterStat.count}"></td>
             <td><strong th:text="${node.title} ?: '-'"></strong></td>
@@ -321,8 +193,10 @@
             <td th:text="${node.parentNodeToken} ?: '-'" style="font-family: monospace; font-size: 0.85rem;"></td>
             <td th:text="${node.objType} ?: '-'"></td>
           </tr>
-          <!-- Child nodes rows -->
-          <tr th:each="childNode : ${node.childNodes}" th:if="${node.childNodes != null and !#lists.isEmpty(node.childNodes)}" style="background-color: #fafafa;">
+
+          <tr th:each="childNode : ${node.childNodes}"
+              th:if="${node.childNodes != null and !#lists.isEmpty(node.childNodes)}"
+              style="background-color: #fafafa;">
             <td></td>
             <td style="padding-left: 2rem;">└─ <span th:text="${childNode.title} ?: '-'"></span></td>
             <td th:text="${childNode.objToken} ?: '-'" style="font-family: monospace; font-size: 0.85rem;"></td>
@@ -331,6 +205,7 @@
             <td th:text="${childNode.objType} ?: '-'"></td>
           </tr>
         </th:block>
+
         <tr th:if="${#lists.isEmpty(allBases)}">
           <td colspan="6" style="text-align: center; padding: 2rem; color: #666;">
             Không có dữ liệu bases
@@ -340,7 +215,34 @@
       </table>
     </div>
 
-    <!-- Section hiển thị mapping giữa POS Users và Lark Nodes -->
+    <!-- ✅ NEW: Sale Tables -->
+    <div class="table-wrapper" style="margin-bottom: 2rem;">
+      <h2 style="margin-bottom: 1rem; color: #667eea;">🧾 Danh Sách Table Sale (Bitable)</h2>
+      <table>
+        <thead>
+        <tr>
+          <th>STT</th>
+          <th>Name</th>
+          <th>Table ID</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="t, iterStat : ${saleTables}">
+          <td class="stt" th:text="${iterStat.count}"></td>
+          <td th:text="${t.name} ?: '-'"></td>
+          <td th:text="${t.tableId} ?: '-'" style="font-family: monospace; font-size: 0.85rem;"></td>
+        </tr>
+
+        <tr th:if="${#lists.isEmpty(saleTables)}">
+          <td colspan="3" style="text-align: center; padding: 2rem; color: #666;">
+            Không có dữ liệu table sale
+          </td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Mapping -->
     <div class="table-wrapper">
       <h2 style="margin-bottom: 1rem; color: #667eea;">👥 Mapping Nhân Viên POS với Lark</h2>
       <table>
@@ -368,6 +270,7 @@
             <button class="action-btn delete">Xóa</button>
           </td>
         </tr>
+
         <tr th:if="${#lists.isEmpty(userConfigs)}">
           <td colspan="7" style="text-align: center; padding: 2rem; color: #666;">
             Không có dữ liệu nhân viên
@@ -376,6 +279,7 @@
         </tbody>
       </table>
     </div>
+
   </div>
 </section>
 

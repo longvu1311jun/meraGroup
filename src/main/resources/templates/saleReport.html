@@ -200,8 +200,8 @@
     <div>
       <div class="title">📈 Sale Report (Tổng hợp theo tư vấn viên)</div>
       <div class="meta">
-        Range: <b th:text="${range}">LastMonth</b>
-        <span th:if="${fetchedAt != null}"> • Fetched: <b th:text="${fetchedAt}">-</b></span>
+        <!-- Thời gian lọc: <b th:text="${range}">LastMonth</b> -->
+        <span th:if="${fetchedAt != null}"> • Thống kê lần cuối: <b th:text="${fetchedAt}">-</b></span>
         <span th:if="${totalAgents != null}"> • Tư vấn viên: <b th:text="${totalAgents}">0</b></span>
         </div>
       </div>
@@ -211,16 +211,16 @@
 
       <form method="get" action="/saleReport">
         <select name="range">
-          <option value="LastMonth" th:selected="${range == 'LastMonth'}">LastMonth</option>
-          <option value="ThisMonth" th:selected="${range == 'ThisMonth'}">ThisMonth</option>
-          <option value="Last7Days" th:selected="${range == 'Last7Days'}">Last7Days</option>
+          <option value="CurrentMonth" th:selected="${range == 'CurrentMonth'}">Tháng này</option>
+          <option value="LastMonth" th:selected="${range == 'LastMonth'}">Tháng trước</option>
+<!--          <option value="Last7Days" th:selected="${range == 'Last7Days'}">Last7Days</option>-->
         </select>
-        <button class="ghost" type="submit">Load</button>
+        <button class="ghost" type="submit">Lọc</button>
       </form>
 
       <form method="post" th:action="@{/saleReport/refresh}">
         <input type="hidden" name="range" th:value="${range}" />
-        <button class="primary" type="submit">🔄 Refresh</button>
+        <button class="primary" type="submit">🔄 Làm mới dữ liệu</button>
       </form>
     </div>
   </div>
@@ -243,11 +243,11 @@
           <th class="center">Chốt nóng</th>
           <th class="center">Chốt cũ</th>
           <th class="center">Đơn hủy</th>
-          <th class="center">Tổng mess</th>
-          <th class="center">Tổng đơn</th>
-          <th class="center">Đơn/mess nhu cầu</th>
-          <th class="center">Đơn/mess tổng</th>
-          <th class="center">Tỉ lệ hủy</th>
+          <th class="center" title="Tổng mess = Nhu cầu + Trùng + Rác + Không tương tác + Chốt nóng + Chốt cũ + Đơn hủy">Tổng mess</th>
+          <th class="center" title="Tổng đơn = Chốt nóng + Chốt cũ">Tổng đơn</th>
+          <th class="center" title="Đơn/mess nhu cầu = Tổng đơn / (Nhu cầu + Chốt nóng + Chốt cũ + Hủy)">Đơn/mess nhu cầu</th>
+          <th class="center" title="Đơn/mess tổng = Tổng đơn / Tổng mess">Đơn/mess tổng</th>
+          <th class="center" title="Tỉ lệ hủy = Đơn hủy / Tổng đơn">Tỉ lệ hủy</th>
           <!-- <th style="min-width:220px;">Table ID</th> -->
         </tr>
         </thead>
@@ -270,8 +270,12 @@
           <td class="center" th:text="${r.tongMess}">0</td>
           <td class="center" th:text="${r.tongDon}">0</td>
 
-          <td class="center" th:text="${r.donPerMessNhuCau}">0.00</td>
-          <td class="center" th:text="${r.donPerMessTong}">0.00</td>
+          <!-- Đơn/mess nhu cầu & Đơn/mess tổng hiển thị dạng xx,x% (frontend nhân 100 và thêm %) -->
+          <!-- Hiển thị phần trăm với 1 chữ số sau dấu phẩy -->
+          <td class="center"
+              th:text="${#strings.replace(#numbers.formatDecimal(r.donPerMessNhuCau * 100, 1, 1), '.', ',') + '%'}">0,0%</td>
+          <td class="center"
+              th:text="${#strings.replace(#numbers.formatDecimal(r.donPerMessTong * 100, 1, 1), '.', ',') + '%'}">0,0%</td>
 
           <td class="center">
             <span
@@ -332,11 +336,13 @@ document.addEventListener('DOMContentLoaded', function(){
 
   function parseCellValue(text){
     if(!text) return '';
-    const trimmed = text.replace('%','').replace(/,/g,'').trim();
-    if(trimmed==='' ) return '';
-    const n = parseFloat(trimmed);
+    const cleaned = text.replace('%','').trim();
+    if(cleaned==='') return '';
+    // Xử lý số dạng 1.234,5% -> 1234.5 để sort đúng
+    const normalized = cleaned.replace(/\./g,'').replace(',', '.');
+    const n = parseFloat(normalized);
     if(!isNaN(n)) return n;
-    return trimmed.toLowerCase();
+    return cleaned.toLowerCase();
   }
 
   function sortByColumn(idx, order){

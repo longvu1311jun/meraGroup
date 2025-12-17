@@ -56,10 +56,23 @@ public class LarkTokenService {
     return token.getAccessToken();
   }
 
-  /** refresh trước 60s cho chắc */
+  /** 
+   * Tự động refresh token nếu:
+   * - Token đã hết hạn (expired)
+   * - Token sắp hết hạn trong 60 giây
+   * - Token đã được cập nhật hơn 1 giờ trước (để đảm bảo refresh định kỳ)
+   */
   public void autoRefreshTokenIfNeeded(HttpSession session) {
     TokenInfo token = getCurrentToken(session);
-    if (token == null || token.getExpiresAt() == null) return;
+    if (token == null) {
+      log.warn("⚠️ No token found in session");
+      return;
+    }
+    
+    if (token.getExpiresAt() == null) {
+      log.warn("⚠️ Token has no expiresAt, cannot check expiration");
+      return;
+    }
 
     long now = Instant.now().toEpochMilli();
     long expiresAtMs = token.getExpiresAt()
@@ -68,13 +81,58 @@ public class LarkTokenService {
         .toEpochMilli();
 
     long remainMs = expiresAtMs - now;
-
-    if (remainMs <= 60_000) {
-      try {
-        refreshToken(session);
-      } catch (Exception e) {
-        log.error("Auto refresh token failed: {}", e.getMessage(), e);
+    long remainSeconds = remainMs / 1000;
+    
+    // Kiểm tra nếu token đã được cập nhật hơn 1 giờ trước
+    boolean needsRefreshByTime = false;
+    if (token.getLastUpdated() != null) {
+      long lastUpdatedMs = token.getLastUpdated()
+          .atZone(ZoneId.systemDefault())
+          .toInstant()
+          .toEpochMilli();
+      long timeSinceUpdateMs = now - lastUpdatedMs;
+      long timeSinceUpdateHours = timeSinceUpdateMs / (1000 * 60 * 60);
+      
+      if (timeSinceUpdateHours >= 1) {
+        needsRefreshByTime = true;
+        log.info("🕐 Token was updated {} hours ago, will refresh", timeSinceUpdateHours);
       }
+    }
+
+    // Refresh nếu: đã hết hạn, sắp hết hạn (< 60s), hoặc đã được cập nhật > 1 giờ
+    boolean isExpired = remainMs <= 0;
+    boolean isExpiringSoon = remainMs <= 60_000;
+    
+    if (isExpired || isExpiringSoon || needsRefreshByTime) {
+      log.info("🔄 Auto-refreshing token - Expired: {}, Expiring soon (<60s): {}, Needs refresh by time (>1h): {}, Remaining: {} seconds",
+          isExpired, isExpiringSoon, needsRefreshByTime, remainSeconds);
+      
+      try {
+        TokenInfo oldToken = token;
+        TokenInfo newToken = refreshToken(session);
+        
+        // Log chi tiết để kiểm tra
+        log.info("✅ AUTO REFRESH SUCCESSFUL (FULL):");
+        log.info("   📅 Old Token - AccessToken: {}, RefreshToken: {}, ExpiresAt: {}, LastUpdated: {}", 
+            oldToken.getAccessToken(), 
+            oldToken.getRefreshToken(),
+            oldToken.getExpiresAt(),
+            oldToken.getLastUpdated());
+        log.info("   📅 New Token - AccessToken: {}, RefreshToken: {}, ExpiresAt: {}, LastUpdated: {}, ExpiresIn: {} seconds",
+            newToken.getAccessToken(),
+            newToken.getRefreshToken(),
+            newToken.getExpiresAt(),
+            newToken.getLastUpdated(),
+            newToken.getExpiresIn());
+        log.info("   ⏰ Refresh completed at: {}", LocalDateTime.now());
+        
+      } catch (Exception e) {
+        log.error("❌ Auto refresh token failed: {}", e.getMessage(), e);
+        throw new RuntimeException("Failed to auto-refresh token: " + e.getMessage(), e);
+      }
+    } else {
+      log.debug("✓ Token still valid - Remaining: {} seconds, LastUpdated: {}", 
+          remainSeconds, token.getLastUpdated());
     }
   }
 
@@ -120,11 +178,14 @@ public class LarkTokenService {
 
     session.setAttribute(SESSION_TOKEN_INFO, tokenInfo);
 
-    log.info("✅ Token saved. accessToken={}, refreshToken={}, expiresAt={}",
-        mask(tokenInfo.getAccessToken()),
-        mask(tokenInfo.getRefreshToken()),
-        tokenInfo.getExpiresAt()
-    );
+    // In FULL token ra log để debug (chỉ nên dùng trong môi trường dev/test)
+    log.info("✅ Token saved (FULL):");
+    log.info("   accessToken = {}", tokenInfo.getAccessToken());
+    log.info("   refreshToken = {}", tokenInfo.getRefreshToken());
+    log.info("   tokenType = {}", tokenInfo.getTokenType());
+    log.info("   expiresIn = {} seconds", tokenInfo.getExpiresIn());
+    log.info("   expiresAt = {}", tokenInfo.getExpiresAt());
+    log.info("   lastUpdated = {}", tokenInfo.getLastUpdated());
 
     return tokenInfo;
   }
@@ -175,11 +236,21 @@ public class LarkTokenService {
 
     session.setAttribute(SESSION_TOKEN_INFO, newToken);
 
-    log.info("🔄 REFRESH DONE ✅ newAccessToken={}, newRefreshToken={}, expiresAt={}",
-        mask(newToken.getAccessToken()),
-        mask(newToken.getRefreshToken()),
-        newToken.getExpiresAt()
-    );
+    // Log chi tiết token mới (FULL để kiểm tra refresh)
+    log.info("🔄 REFRESH TOKEN COMPLETED (FULL):");
+    log.info("   📝 New AccessToken: {}", newToken.getAccessToken());
+    log.info("   📝 New RefreshToken: {}", newToken.getRefreshToken());
+    log.info("   ⏰ ExpiresAt: {}", newToken.getExpiresAt());
+    log.info("   ⏰ LastUpdated: {}", newToken.getLastUpdated());
+    log.info("   ⏱️ ExpiresIn: {} seconds ({} minutes)", 
+        newToken.getExpiresIn(), 
+        newToken.getExpiresIn() / 60);
+    log.info("   📊 TokenType: {}", newToken.getTokenType());
+    
+    // Log thời gian hiện tại để so sánh
+    LocalDateTime now = LocalDateTime.now();
+    log.info("   🕐 Current Time: {}", now);
+    log.info("   ⏳ Token will expire in: {} seconds", newToken.getExpiresIn());
 
     return newToken;
   }

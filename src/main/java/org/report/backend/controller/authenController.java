@@ -110,6 +110,7 @@ public class authenController {
   @GetMapping("/config")
   public String config(Model model, HttpSession session) {
     if (tokenService.hasToken(session)) {
+      log.info("🔍 Checking token status for /config endpoint");
       tokenService.autoRefreshTokenIfNeeded(session);
 
       TokenInfo token = tokenService.getCurrentToken(session);
@@ -264,6 +265,7 @@ public class authenController {
     }
 
     try {
+      log.info("🔍 Checking token status for /stats endpoint");
       tokenService.autoRefreshTokenIfNeeded(session);
 
       // Validate customerMonth parameter

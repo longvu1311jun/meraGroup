@@ -53,6 +53,7 @@ public class SaleReportController {
       return "saleReport";
     }
 
+    log.info("🔍 Checking token status for /saleReport endpoint");
     tokenService.autoRefreshTokenIfNeeded(session);
 
     // 1) ✅ session cache

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Thống Kê Nhân Viên - Công Ty</title>
+  <title>Thống kê lịch hẹn</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -164,6 +164,17 @@
       color: white;
       border-color: #667eea;
     }
+    /* Search + sort styles (reuse from saleReport) */
+    .search-input {
+      border:1px solid #e5e7eb;
+      border-radius:10px;
+      padding:10px 12px;
+      font-size:14px;
+      background:#fff;
+      width:260px;
+    }
+    thead th.sortable{ cursor:pointer; }
+    thead th .sort-indicator{ margin-left:8px; font-size:12px; opacity:0.9 }
   </style>
 </head>
 <body>
@@ -185,6 +196,11 @@
 <section class="content-section">
   <div class="container">
     <h1 class="section-title">📈 Thống Kê Nhân Viên</h1>
+
+    <!-- Search by employee name -->
+    <div style="margin-bottom: 1rem; display:flex; justify-content:flex-end;">
+      <input id="searchInput" class="search-input" type="search" placeholder="Tìm theo tên nhân viên" />
+    </div>
 
     <div th:if="${error}" class="alert alert-error" th:text="${error}"></div>
     <div th:if="${success}" class="alert alert-success" th:text="${success}"></div>
@@ -240,7 +256,7 @@
 
     <!-- Stats Table -->
     <div class="table-wrapper">
-      <table>
+      <table class="stats-table">
         <thead>
         <tr>
           <th>STT</th>
@@ -256,11 +272,11 @@
         <tr th:each="stat, iterStat : ${statsList}">
           <td class="stt" th:text="${iterStat.count}"></td>
           <td class="employee-name" th:text="${stat.employeeName} ?: '-'"></td>
-          <td class="number-cell" th:text="${stat.tongKhach}">0</td>
-          <td class="number-cell" th:text="${stat.tongLich}">0</td>
-          <td class="number-cell" th:text="${stat.hoanThanhMuon}">0</td>
-          <td class="number-cell" th:text="${stat.hoanThanh}">0</td>
-          <td class="number-cell" th:text="${stat.quaHan}">0</td>
+          <td class="number-cell" th:text="${stat.tongKhach}" style="text-align: center">0</td>
+          <td class="number-cell" th:text="${stat.tongLich}" style="text-align: center">0</td>
+          <td class="number-cell" th:text="${stat.hoanThanhMuon}" style="text-align: center">0</td>
+          <td class="number-cell" th:text="${stat.hoanThanh}" style="text-align: center">0</td>
+          <td class="number-cell" th:text="${stat.quaHan}" style="text-align: center">0</td>
         </tr>
 
         <tr th:if="${#lists.isEmpty(statsList)}">
@@ -278,6 +294,91 @@
 <footer>
   <p>&copy; 2025 Công Ty. Bảo lưu mọi quyền.</p>
 </footer>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    const table = document.querySelector('.stats-table');
+    if(!table) return;
+    const tbody = table.querySelector('tbody');
+    let rows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
+    const originalRows = rows.slice();
+    const searchInput = document.getElementById('searchInput');
+
+    const ths = Array.from(table.querySelectorAll('thead th'));
+    ths.forEach((th, idx)=>{
+      if(idx===0) return; // skip STT column
+      th.classList.add('sortable');
+      const span = document.createElement('span');
+      span.className = 'sort-indicator';
+      th.appendChild(span);
+      th.dataset.sortState = 'none';
+      th.addEventListener('click', ()=>{
+        const state = th.dataset.sortState;
+        const next = state==='none' ? 'asc' : state==='asc' ? 'desc' : 'none';
+        ths.forEach(t=>{ if(t!==th){ t.dataset.sortState='none'; const si = t.querySelector('.sort-indicator'); if(si) si.textContent=''; }});
+        th.dataset.sortState = next;
+        const ind = th.querySelector('.sort-indicator');
+        if(ind) ind.textContent = next==='asc' ? '▲' : next==='desc' ? '▼' : '';
+        if(next==='none'){
+          restoreOriginalOrder();
+          applyFilter();
+        } else {
+          sortByColumn(idx, next);
+        }
+      });
+    });
+
+    function parseCellValue(text){
+      if(!text) return '';
+      const trimmed = text.replace('%','').replace(/,/g,'').trim();
+      if(trimmed==='' ) return '';
+      const n = parseFloat(trimmed);
+      if(!isNaN(n)) return n;
+      return trimmed.toLowerCase();
+    }
+
+    function sortByColumn(idx, order){
+      const visible = rows.filter(r=> r.style.display !== 'none');
+      visible.sort((a,b)=>{
+        const aV = parseCellValue((a.children[idx]||{}).textContent||'');
+        const bV = parseCellValue((b.children[idx]||{}).textContent||'');
+        if(typeof aV === 'number' && typeof bV === 'number'){
+          return order==='asc' ? aV - bV : bV - aV;
+        } else {
+          return order==='asc' ? String(aV).localeCompare(String(bV)) : String(bV).localeCompare(String(aV));
+        }
+      });
+      const hidden = originalRows.filter(r=> r.style.display === 'none');
+      tbody.innerHTML = '';
+      visible.forEach(r=> tbody.appendChild(r));
+      hidden.forEach(r=> tbody.appendChild(r));
+    }
+
+    function restoreOriginalOrder(){
+      tbody.innerHTML = '';
+      originalRows.forEach(r=> tbody.appendChild(r));
+      rows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
+    }
+
+    function applyFilter(){
+      const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
+      rows.forEach(r=>{
+        const nameCell = r.children[1];
+        const text = nameCell ? nameCell.textContent.toLowerCase() : '';
+        r.style.display = q === '' || text.indexOf(q) !== -1 ? '' : 'none';
+      });
+      const activeTh = ths.find(t=> t.dataset.sortState && t.dataset.sortState!=='none');
+      if(activeTh){
+        sortByColumn(ths.indexOf(activeTh), activeTh.dataset.sortState);
+      }
+    }
+
+    if(searchInput){
+      searchInput.addEventListener('input', ()=>{ applyFilter(); });
+    }
+
+  });
+</script>
+
 </body>
 </html>
-

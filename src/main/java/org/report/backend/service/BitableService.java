@@ -142,7 +142,7 @@ public class BitableService {
     long nhuCau = 0, trung = 0, rac = 0, khongTuongTac = 0;
     long chotNong = 0, chotCu = 0, donHuy = 0;
     long tongMess = 0;
-    long tongDon = 0; // heuristic: status chứa "chốt" hoặc "đơn"
+    long tongDon = 0;
 
     String tableId = table.getTableId();
     String tableName = table.getName();
@@ -176,8 +176,6 @@ public class BitableService {
       List<BitableRecord> items = (body.data != null) ? body.data.items : null;
       if (items != null) {
         for (BitableRecord r : items) {
-          tongMess++;
-
           Map<String, Object> fields = r.getFields();
           Object rawStatus = (fields != null) ? fields.get("Trạng thái mess") : null;
           String status = normalizeStatus(extractText(rawStatus));
@@ -192,12 +190,6 @@ public class BitableService {
           else if (status.contains("chốt nóng")) chotNong++;
           else if (status.contains("chốt cũ")) chotCu++;
           else if (status.contains("đơn hủy") || status.contains("đơn huỷ")) donHuy++;
-
-          // ✅ heuristic tính "đơn"
-          // nếu status có "chốt" hoặc "đơn" thì tính là 1 đơn (để match bảng cũ)
-          if (status.contains("chốt") || status.contains("đơn")) {
-            tongDon++;
-          }
         }
       }
 
@@ -224,11 +216,27 @@ public class BitableService {
 
     row.setDonHuy(donHuy);
 
+    // Theo yêu cầu: Tổng mess = Nhu cầu + Trùng + Rác + Không tương tác + Chốt nóng + Chốt cũ + Đơn hủy
+    tongMess = nhuCau + trung + rac + khongTuongTac + chotNong + chotCu + donHuy;
+    // Theo yêu cầu: Tổng đơn = Chốt nóng + Chốt cũ
+    tongDon = chotNong + chotCu;
+
     row.setTongMess(tongMess);
     row.setTongDon(tongDon);
 
-    row.setDonPerMessNhuCau(nhuCau == 0 ? 0.0 : round2((double) tongDon / (double) nhuCau));
-    row.setDonPerMessTong(tongMess == 0 ? 0.0 : round2((double) tongDon / (double) tongMess));
+    // Đơn/mess nhu cầu = Tổng đơn / (Nhu cầu + Chốt nóng + Chốt cũ + Hủy)
+    // -> backend chỉ giữ TỶ LỆ (0.x), phần trăm và ký hiệu % xử lý ở frontend
+    long nhuCauDenominator = nhuCau + chotNong + chotCu + donHuy;
+    double donPerMessNhuCau = (nhuCauDenominator == 0)
+        ? 0.0
+        : round2(((double) tongDon) / (double) nhuCauDenominator);
+    row.setDonPerMessNhuCau(donPerMessNhuCau);
+
+    // Đơn/mess tổng = Tổng đơn / Tổng mess (cũng giữ dạng tỷ lệ 0.x)
+    double donPerMessTong = (tongMess == 0)
+        ? 0.0
+        : round2(((double) tongDon) / (double) tongMess);
+    row.setDonPerMessTong(donPerMessTong);
 
     int tiLeHuy = (tongDon == 0) ? 0 : (int) Math.round(((double) donHuy * 100.0) / (double) tongDon);
     row.setTiLeHuyPercent(tiLeHuy);

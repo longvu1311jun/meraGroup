@@ -42,7 +42,7 @@ public class SaleReportController {
 
   @GetMapping("/saleReport")
   public String saleReport(
-      @RequestParam(value = "range", required = false, defaultValue = "LastMonth") String range,
+      @RequestParam(value = "range", required = false, defaultValue = "CurrentMonth") String range,
       Model model,
       HttpSession session
   ) {
@@ -133,7 +133,7 @@ public class SaleReportController {
 
   @PostMapping("/saleReport/refresh")
   public String refreshSaleReport(
-      @RequestParam(value = "range", required = false, defaultValue = "LastMonth") String range,
+      @RequestParam(value = "range", required = false, defaultValue = "CurrentMonth") String range,
       HttpSession session
   ) {
     // clear session

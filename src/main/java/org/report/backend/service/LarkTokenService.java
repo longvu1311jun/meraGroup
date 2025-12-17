@@ -2,6 +2,10 @@ package org.report.backend.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.servlet.http.HttpSession;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Collections;
 import org.report.backend.model.TokenInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,388 +15,298 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-
 @Service
 public class LarkTokenService {
-  
+
   private static final Logger log = LoggerFactory.getLogger(LarkTokenService.class);
-  private static final String SESSION_TOKEN_KEY = "LARK_TOKEN_INFO";
-  
+  private static final String SESSION_TOKEN_INFO = "LARK_TOKEN_INFO";
+
+  private final RestTemplate restTemplate = new RestTemplate();
+
   @Value("${lark.app-id}")
   private String appId;
-  
+
   @Value("${lark.app-secret}")
   private String appSecret;
-  
-  private final RestTemplate restTemplate;
-  private String cachedAppAccessToken;
-  private LocalDateTime appTokenExpiresAt;
-  
-  public LarkTokenService() {
-    this.restTemplate = new RestTemplate();
+
+  public boolean hasToken(HttpSession session) {
+    return session.getAttribute(SESSION_TOKEN_INFO) != null;
   }
-  
-  /**
-   * Get app access token from Lark
-   */
-  private String getAppAccessToken() throws Exception {
-    // Return cached token if still valid (with 5 minutes buffer)
-    if (cachedAppAccessToken != null && appTokenExpiresAt != null &&
-        LocalDateTime.now().plusMinutes(5).isBefore(appTokenExpiresAt)) {
-      return cachedAppAccessToken;
-    }
-    
-    String url = "https://open.larksuite.com/open-apis/auth/v3/app_access_token/internal";
-    
-    Map<String, String> body = new HashMap<>();
-    body.put("app_id", appId);
-    body.put("app_secret", appSecret);
-    
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.APPLICATION_JSON);
-    
-    HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
-    
-    try {
-      ResponseEntity<AppTokenResponse> response = restTemplate.postForEntity(
-          url, entity, AppTokenResponse.class);
-      
-      if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-        AppTokenResponse appTokenResponse = response.getBody();
-        if (appTokenResponse != null && appTokenResponse.getCode() == 0 && 
-            appTokenResponse.getAppAccessToken() != null) {
-          cachedAppAccessToken = appTokenResponse.getAppAccessToken();
-          // App access token typically expires in 2 hours
-          appTokenExpiresAt = LocalDateTime.now().plusHours(2);
-          return cachedAppAccessToken;
-        } else {
-          String errorMsg = appTokenResponse != null ? 
-              (appTokenResponse.getCode() + " - " + appTokenResponse.getMsg()) : "Unknown error";
-          throw new RuntimeException("Failed to get app access token: " + errorMsg);
-        }
-      } else {
-        throw new RuntimeException("Failed to get app access token: HTTP " + response.getStatusCode());
-      }
-    } catch (RestClientException e) {
-      log.error("Error calling getAppAccessToken API: {}", e.getMessage(), e);
-      throw new RuntimeException("Failed to get app access token: " + e.getMessage(), e);
-    }
+
+  public TokenInfo getCurrentToken(HttpSession session) {
+    Object v = session.getAttribute(SESSION_TOKEN_INFO);
+    return (v instanceof TokenInfo) ? (TokenInfo) v : null;
   }
-  
-  /**
-   * Get token from session
-   */
-  private TokenInfo getTokenFromSession(HttpSession session) {
-    if (session != null) {
-      return (TokenInfo) session.getAttribute(SESSION_TOKEN_KEY);
+
+  public String getAccessToken(HttpSession session, boolean forceRefresh) throws Exception {
+    if (!hasToken(session)) {
+      throw new IllegalStateException("No token in session. Please login first.");
     }
-    return null;
+
+    if (forceRefresh) {
+      refreshToken(session);
+    } else {
+      autoRefreshTokenIfNeeded(session);
+    }
+
+    TokenInfo token = getCurrentToken(session);
+    if (token == null || token.getAccessToken() == null) {
+      throw new IllegalStateException("Token not available.");
+    }
+    return token.getAccessToken();
   }
-  
-  /**
-   * Save token to session
-   */
-  private void saveTokenToSession(HttpSession session, TokenInfo tokenInfo) {
-    if (session != null) {
-      session.setAttribute(SESSION_TOKEN_KEY, tokenInfo);
-    }
-  }
-  
-  /**
-   * Exchange authorization code for user access token and refresh token
-   */
-  public TokenInfo exchangeCodeForToken(String code, HttpSession session) throws Exception {
-    String appAccessToken = getAppAccessToken();
-    
-    String url = "https://open.larksuite.com/open-apis/authen/v1/access_token";
-    
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.APPLICATION_JSON);
-    if (appAccessToken != null) {
-      headers.setBearerAuth(appAccessToken);  // Authorization: Bearer <app_access_token>
-    }
-    
-    Map<String, String> body = Map.of(
-        "grant_type", "authorization_code",
-        "code", code
-    );
-    
-    HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
-    
-    ResponseEntity<LarkTokenResponse> resp;
-    try {
-      resp = restTemplate.postForEntity(url, entity, LarkTokenResponse.class);
-    } catch (RestClientException e) {
-      log.error("Error calling exchangeCodeForUserToken API: {}", e.getMessage(), e);
-      throw new RuntimeException("Failed to exchange code for user token: " + e.getMessage(), e);
-    }
-    
-    LarkTokenResponse result = resp.getBody();
-    if (result == null) {
-      throw new RuntimeException("Empty response from Lark");
-    }
-    if (result.getCode() != 0) {
-      throw new RuntimeException("Lark error: " + result.getCode() + " - " + result.getMsg());
-    }
-    
-    // Convert LarkTokenResponse to TokenInfo
-    TokenInfo tokenInfo = new TokenInfo(
-        result.getData().getAccessToken(),
-        result.getData().getRefreshToken(),
-        result.getData().getExpiresIn(),
-        result.getData().getTokenType()
-    );
-    saveTokenToSession(session, tokenInfo);
-    return tokenInfo;
-  }
-  
-  /**
-   * Refresh access token using refresh token
-   */
-  public TokenInfo refreshToken(HttpSession session) throws Exception {
-    TokenInfo currentToken = getTokenFromSession(session);
-    if (currentToken == null || currentToken.getRefreshToken() == null) {
-      throw new RuntimeException("No refresh token available");
-    }
-    
-    String appAccessToken = getAppAccessToken();
-    String url = "https://open.larksuite.com/open-apis/authen/v1/refresh_access_token";
-    
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.APPLICATION_JSON);
-    headers.setBearerAuth(appAccessToken);
-    
-    Map<String, String> body = Map.of(
-        "grant_type", "refresh_token",
-        "refresh_token", currentToken.getRefreshToken()
-    );
-    
-    HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
-    
-    try {
-      ResponseEntity<LarkTokenResponse> response = restTemplate.postForEntity(
-          url, entity, LarkTokenResponse.class);
-      
-      if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-        LarkTokenResponse tokenResponse = response.getBody();
-        if (tokenResponse != null && tokenResponse.getCode() == 0 && tokenResponse.getData() != null) {
-          LarkTokenData data = tokenResponse.getData();
-          TokenInfo tokenInfo = new TokenInfo(
-              data.getAccessToken(),
-              data.getRefreshToken() != null ? 
-                  data.getRefreshToken() : currentToken.getRefreshToken(),
-              data.getExpiresIn(),
-              data.getTokenType()
-          );
-          tokenInfo.setLastUpdated(LocalDateTime.now());
-          saveTokenToSession(session, tokenInfo);
-          return tokenInfo;
-        } else {
-          throw new RuntimeException("Failed to refresh token: " + 
-              tokenResponse.getCode() + " - " + tokenResponse.getMsg());
-        }
-      } else {
-        throw new RuntimeException("Failed to refresh token: HTTP " + response.getStatusCode());
-      }
-    } catch (RestClientException e) {
-      log.error("Error calling refreshToken API: {}", e.getMessage(), e);
-      throw new RuntimeException("Error refreshing token: " + e.getMessage(), e);
-    }
-  }
-  
-  /**
-   * Get current access token (refresh if needed)
-   * Auto refresh if expired or expiring soon (within 5 minutes)
-   */
-  public String getAccessToken(HttpSession session) throws Exception {
-    return getAccessToken(session, false);
-  }
-  
-  /**
-   * Get current access token with option to force refresh
-   * @param session HTTP session
-   * @param forceRefreshHourly if true, refresh if last updated more than 1 hour ago
-   */
-  public String getAccessToken(HttpSession session, boolean forceRefreshHourly) throws Exception {
-    TokenInfo currentToken = getTokenFromSession(session);
-    if (currentToken == null) {
-      throw new RuntimeException("No token available. Please authenticate first.");
-    }
-    
-    LocalDateTime now = LocalDateTime.now();
-    boolean shouldRefresh = false;
-    
-    // Refresh if expired
-    if (currentToken.isExpired()) {
-      shouldRefresh = true;
-      log.info("Token expired, refreshing...");
-    }
-    // Refresh if about to expire in 5 minutes
-    else if (currentToken.getExpiresAt() != null && 
-             now.plusMinutes(5).isAfter(currentToken.getExpiresAt())) {
-      shouldRefresh = true;
-      log.info("Token expiring soon, refreshing...");
-    }
-    // Refresh if last updated was more than 1 hour ago (only if forceRefreshHourly is true)
-    else if (forceRefreshHourly && currentToken.getLastUpdated() != null && 
-             now.isAfter(currentToken.getLastUpdated().plusHours(1))) {
-      shouldRefresh = true;
-      log.info("Token last updated more than 1 hour ago, refreshing...");
-    }
-    
-    if (shouldRefresh) {
+
+  /** refresh trước 60s cho chắc */
+  public void autoRefreshTokenIfNeeded(HttpSession session) {
+    TokenInfo token = getCurrentToken(session);
+    if (token == null || token.getExpiresAt() == null) return;
+
+    long now = Instant.now().toEpochMilli();
+    long expiresAtMs = token.getExpiresAt()
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli();
+
+    long remainMs = expiresAtMs - now;
+
+    if (remainMs <= 60_000) {
       try {
         refreshToken(session);
-        currentToken = getTokenFromSession(session);
       } catch (Exception e) {
-        log.error("Failed to refresh token: {}", e.getMessage());
-        // If refresh fails, try to use current token if not expired
-        if (currentToken.isExpired()) {
-          throw new RuntimeException("Token expired and refresh failed. Please login again: " + e.getMessage(), e);
-        }
-        // If not expired yet, continue with current token
-        log.warn("Using current token despite refresh failure");
+        log.error("Auto refresh token failed: {}", e.getMessage(), e);
       }
     }
-    
-    return currentToken.getAccessToken();
   }
-  
-  /**
-   * Get current token info from session
-   */
-  public TokenInfo getCurrentToken(HttpSession session) {
-    return getTokenFromSession(session);
-  }
-  
-  /**
-   * Check if token is available in session
-   */
-  public boolean hasToken(HttpSession session) {
-    TokenInfo token = getTokenFromSession(session);
-    return token != null && token.getAccessToken() != null;
-  }
-  
-  /**
-   * Auto refresh token if last updated more than 1 hour ago
-   * This is called periodically to keep token fresh
-   */
-  public void autoRefreshTokenIfNeeded(HttpSession session) {
+
+  /** Exchange code -> user access_token / refresh_token */
+  public TokenInfo exchangeCodeForToken(String code, HttpSession session) throws Exception {
+    String appAccessToken = getAppAccessToken();
+
+    String url = "https://open.larksuite.com/open-apis/authen/v1/access_token";
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(appAccessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    ExchangeReq req = new ExchangeReq();
+    req.code = code;
+    req.grantType = "authorization_code";
+
+    HttpEntity<ExchangeReq> entity = new HttpEntity<>(req, headers);
+
+    ResponseEntity<ExchangeResp> resp;
     try {
-      TokenInfo token = getTokenFromSession(session);
-      if (token == null) {
-        return;
-      }
-      
-      LocalDateTime now = LocalDateTime.now();
-      // Refresh if last updated more than 1 hour ago and not expired
-      if (token.getLastUpdated() != null && 
-          now.isAfter(token.getLastUpdated().plusHours(1)) &&
-          !token.isExpired()) {
-        log.info("Auto-refreshing token (1 hour elapsed since last update)");
-        refreshToken(session);
-      }
-    } catch (Exception e) {
-      log.warn("Failed to auto-refresh token: {}", e.getMessage());
-      // Don't throw exception, just log warning
+      resp = restTemplate.exchange(url, HttpMethod.POST, entity, ExchangeResp.class);
+    } catch (RestClientException e) {
+      throw new RuntimeException("Exchange token failed: " + e.getMessage(), e);
+    }
+
+    if (resp.getStatusCode() != HttpStatus.OK || resp.getBody() == null) {
+      throw new RuntimeException("Exchange token HTTP error: " + resp.getStatusCode());
+    }
+
+    ExchangeResp body = resp.getBody();
+    if (body.code != 0 || body.data == null) {
+      throw new RuntimeException("Exchange token error: " + body.code + " - " + body.msg);
+    }
+
+    TokenInfo tokenInfo = buildTokenInfo(
+        body.data.accessToken,
+        body.data.refreshToken,
+        body.data.tokenType,
+        body.data.expiresIn
+    );
+
+    session.setAttribute(SESSION_TOKEN_INFO, tokenInfo);
+
+    log.info("✅ Token saved. accessToken={}, refreshToken={}, expiresAt={}",
+        mask(tokenInfo.getAccessToken()),
+        mask(tokenInfo.getRefreshToken()),
+        tokenInfo.getExpiresAt()
+    );
+
+    return tokenInfo;
+  }
+
+  /** Refresh token + log token mới sau khi refresh xong */
+  public TokenInfo refreshToken(HttpSession session) throws Exception {
+    TokenInfo current = getCurrentToken(session);
+    if (current == null || current.getRefreshToken() == null || current.getRefreshToken().isBlank()) {
+      throw new IllegalStateException("No refresh_token available. Please login again.");
+    }
+
+    String url = "https://open.larksuite.com/open-apis/authen/v1/refresh_access_token";
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    RefreshReq req = new RefreshReq();
+    req.appId = appId;
+    req.appSecret = appSecret;
+    req.grantType = "refresh_token";
+    req.refreshToken = current.getRefreshToken();
+
+    HttpEntity<RefreshReq> entity = new HttpEntity<>(req, headers);
+
+    ResponseEntity<RefreshResp> resp;
+    try {
+      resp = restTemplate.exchange(url, HttpMethod.POST, entity, RefreshResp.class);
+    } catch (RestClientException e) {
+      throw new RuntimeException("Refresh token failed: " + e.getMessage(), e);
+    }
+
+    if (resp.getStatusCode() != HttpStatus.OK || resp.getBody() == null) {
+      throw new RuntimeException("Refresh token HTTP error: " + resp.getStatusCode());
+    }
+
+    RefreshResp body = resp.getBody();
+    if (body.code != 0 || body.data == null) {
+      throw new RuntimeException("Refresh token error: " + body.code + " - " + body.msg);
+    }
+
+    TokenInfo newToken = buildTokenInfo(
+        body.data.accessToken,
+        body.data.refreshToken,
+        body.data.tokenType,
+        body.data.expiresIn
+    );
+
+    session.setAttribute(SESSION_TOKEN_INFO, newToken);
+
+    log.info("🔄 REFRESH DONE ✅ newAccessToken={}, newRefreshToken={}, expiresAt={}",
+        mask(newToken.getAccessToken()),
+        mask(newToken.getRefreshToken()),
+        newToken.getExpiresAt()
+    );
+
+    return newToken;
+  }
+
+  // ===================== helpers =====================
+
+  private String getAppAccessToken() {
+    String url = "https://open.larksuite.com/open-apis/auth/v3/app_access_token/internal";
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    AppTokenReq req = new AppTokenReq();
+    req.appId = appId;
+    req.appSecret = appSecret;
+
+    HttpEntity<AppTokenReq> entity = new HttpEntity<>(req, headers);
+
+    ResponseEntity<AppTokenResp> resp;
+    try {
+      resp = restTemplate.exchange(url, HttpMethod.POST, entity, AppTokenResp.class);
+    } catch (RestClientException e) {
+      throw new RuntimeException("Get app_access_token failed: " + e.getMessage(), e);
+    }
+
+    if (resp.getStatusCode() != HttpStatus.OK || resp.getBody() == null) {
+      throw new RuntimeException("Get app_access_token HTTP error: " + resp.getStatusCode());
+    }
+
+    AppTokenResp body = resp.getBody();
+    if (body.code != 0 || body.appAccessToken == null) {
+      throw new RuntimeException("Get app_access_token error: " + body.code + " - " + body.msg);
+    }
+
+    return body.appAccessToken;
+  }
+
+  /**
+   * ✅ FIX chỗ này: TokenInfo.setExpiresIn(...) nhận int => convert long -> int an toàn
+   */
+  private TokenInfo buildTokenInfo(String accessToken, String refreshToken, String tokenType, long expiresInSeconds) {
+    TokenInfo t = new TokenInfo();
+    t.setAccessToken(accessToken);
+    t.setRefreshToken(refreshToken);
+    t.setTokenType(tokenType);
+
+    int expiresInt = toIntExactSafe(expiresInSeconds);
+    t.setExpiresIn(expiresInt);
+
+    long nowMs = Instant.now().toEpochMilli();
+    long expiresAtMs = nowMs + (expiresInSeconds * 1000L);
+
+    LocalDateTime expiresAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(expiresAtMs), ZoneId.systemDefault());
+    LocalDateTime lastUpdated = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault());
+
+    t.setExpiresAt(expiresAt);
+    t.setLastUpdated(lastUpdated);
+
+    return t;
+  }
+
+  private int toIntExactSafe(long v) {
+    try {
+      return Math.toIntExact(v);
+    } catch (ArithmeticException ex) {
+      // Lark thường 7200s, nên gần như không bao giờ vào đây.
+      log.warn("expires_in too large for int: {}", v);
+      return Integer.MAX_VALUE;
     }
   }
-  
-  // Inner classes for JSON response mapping
-  
-  /**
-   * Response class for app access token
-   */
-  private static class AppTokenResponse {
-    @JsonProperty("code")
-    private int code;
-    
-    @JsonProperty("msg")
-    private String msg;
-    
-    @JsonProperty("app_access_token")
-    private String appAccessToken;
-    
-    @JsonProperty("expire")
-    private int expire;
-    
-    public int getCode() {
-      return code;
-    }
-    
-    public String getMsg() {
-      return msg;
-    }
-    
-    public String getAppAccessToken() {
-      return appAccessToken;
-    }
-    
-    public int getExpire() {
-      return expire;
-    }
+
+  private String mask(String token) {
+    if (token == null) return "null";
+    String s = token.trim();
+    if (s.length() <= 12) return "****";
+    return s.substring(0, 6) + "****" + s.substring(s.length() - 6);
   }
-  
-  /**
-   * Response class for user token (LarkTokenResponse)
-   */
-  public static class LarkTokenResponse {
-    @JsonProperty("code")
-    private int code;
-    
-    @JsonProperty("msg")
-    private String msg;
-    
-    @JsonProperty("data")
-    private LarkTokenData data;
-    
-    public int getCode() {
-      return code;
-    }
-    
-    public String getMsg() {
-      return msg;
-    }
-    
-    public LarkTokenData getData() {
-      return data;
-    }
+
+  // ===================== DTOs =====================
+
+  private static class AppTokenReq {
+    @JsonProperty("app_id") String appId;
+    @JsonProperty("app_secret") String appSecret;
   }
-  
-  /**
-   * Data class for user token
-   */
-  public static class LarkTokenData {
-    @JsonProperty("access_token")
-    private String accessToken;
-    
-    @JsonProperty("refresh_token")
-    private String refreshToken;
-    
-    @JsonProperty("expires_in")
-    private int expiresIn;
-    
-    @JsonProperty("token_type")
-    private String tokenType;
-    
-    public String getAccessToken() {
-      return accessToken;
-    }
-    
-    public String getRefreshToken() {
-      return refreshToken;
-    }
-    
-    public int getExpiresIn() {
-      return expiresIn;
-    }
-    
-    public String getTokenType() {
-      return tokenType;
-    }
+
+  private static class AppTokenResp {
+    @JsonProperty("code") int code;
+    @JsonProperty("msg") String msg;
+    @JsonProperty("app_access_token") String appAccessToken;
+  }
+
+  private static class ExchangeReq {
+    @JsonProperty("code") String code;
+    @JsonProperty("grant_type") String grantType;
+  }
+
+  private static class ExchangeResp {
+    @JsonProperty("code") int code;
+    @JsonProperty("msg") String msg;
+    @JsonProperty("data") ExchangeData data;
+  }
+
+  private static class ExchangeData {
+    @JsonProperty("access_token") String accessToken;
+    @JsonProperty("refresh_token") String refreshToken;
+    @JsonProperty("token_type") String tokenType;
+    @JsonProperty("expires_in") long expiresIn;
+  }
+
+  private static class RefreshReq {
+    @JsonProperty("app_id") String appId;
+    @JsonProperty("app_secret") String appSecret;
+    @JsonProperty("grant_type") String grantType;
+    @JsonProperty("refresh_token") String refreshToken;
+  }
+
+  private static class RefreshResp {
+    @JsonProperty("code") int code;
+    @JsonProperty("msg") String msg;
+    @JsonProperty("data") RefreshData data;
+  }
+
+  private static class RefreshData {
+    @JsonProperty("access_token") String accessToken;
+    @JsonProperty("refresh_token") String refreshToken;
+    @JsonProperty("token_type") String tokenType;
+    @JsonProperty("expires_in") long expiresIn;
   }
 }
-

@@ -224,7 +224,7 @@
           <td class="center">
             <span
                 th:text="${r.tiLeHuyPercent} + '%'"
-                th:class="'pill ' + (${r.tiLeHuyPercent} <= 5 ? 'green' : (${r.tiLeHuyPercent} <= 10 ? 'orange' : 'red'))">
+                th:class="'pill ' + (${r.tiLeHuyPercent} <= 9 ? 'green' : (${r.tiLeHuyPercent} >= 10 ? 'orange' : 'red'))">
               0%
             </span>
           </td>

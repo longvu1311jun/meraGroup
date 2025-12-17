@@ -1,95 +1,85 @@
 <!doctype html>
 <html lang="vi">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Scrollable Table</title>
-  <style>
-    :root{
-      --header:#6673ff;
-      --row-alt:#f5f3ff;
-      --text:#4b5563;
-      --shadow: 0 12px 30px rgba(17,24,39,.12);
-      --radius: 14px;
-    }
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Báo cáo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root{
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --muted: #6b7280;
+        --accent: #0d9488;
+        --accent-2: #06b6d4;
+        --border: #e6e9ee;
+      }
+      html,body{height:100%}
+      body{
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        background:var(--bg);
+        color:#0f1724;
+        margin:0;
+        padding:32px 20px;
+      }
+      .container{max-width:1400px;margin:0 auto}
+      .card{
+        background:var(--card);
+        border-radius:12px;
+        padding:20px;
+        box-shadow:0 8px 24px rgba(16,24,40,0.06);
+        border:1px solid var(--border);
+      }
+      .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+      .title{font-size:18px;font-weight:600}
+      .sub{color:var(--muted);font-size:13px}
+      .table-wrap{overflow:auto;border-radius:8px}
+      table{width:100%;min-width:1300px;border-collapse:collapse;font-size:14px}
+      thead th{position:sticky;top:0;background:linear-gradient(180deg,#ffffff,#fbfdfe);padding:12px 14px;text-align:left;font-weight:600;color:#0f1724;border-bottom:1px solid var(--border)}
+      tbody tr{transition:background .12s ease}
+      tbody tr:hover{background:#fbfeff}
+      td,th{padding:10px 14px;border-bottom:1px solid var(--border)}
+      .badge-accent{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#fff;padding:4px 8px;border-radius:999px;font-weight:600;font-size:12px}
+      .badge-danger{background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;padding:4px 8px;border-radius:999px;font-weight:600;font-size:12px}
+      thead th.sort-asc::after{content:' ▲';font-size:12px;color:var(--muted)}
+      thead th.sort-desc::after{content:' ▼';font-size:12px;color:var(--muted)}
+      .small-muted{color:var(--muted);font-size:12px}
+      @media (max-width:640px){
+        .header{flex-direction:column;align-items:flex-start;gap:8px}
+        .title{font-size:16px}
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topnav" style="position:sticky;top:0;z-index:40;padding:12px 20px;background:transparent">
+      <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(90deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700">RG</div>
+          <div style="font-weight:600">Mera Report</div>
+        </div>
+        <nav style="display:flex;gap:18px;align-items:center">
+          <a href="/" style="color:var(--muted);text-decoration:none">Dashboard</a>
+          <a href="/report" style="color:var(--accent);text-decoration:none;font-weight:600">Reports</a>
+          <a href="#" style="color:var(--muted);text-decoration:none">Users</a>
+          <a href="#" style="color:var(--muted);text-decoration:none">Settings</a>
+        </nav>
+      </div>
+    </div>
 
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      background:#f7f8fc;
-      color:#111827;
-    }
+    <div class="container">
+      <div class="card">
+        <div class="header">
+          <div>
+            <div class="title">Báo cáo</div>
+            <div class="sub">Tổng quan hiệu suất tư vấn viên</div>
+          </div>
+          <div class="small-muted">Cập nhật: <span id="updated">—</span></div>
+        </div>
 
-    /* Card bao bảng */
-    .table-card{
-      max-width: 90%;
-      margin: 48px auto;
-      background:#fff;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow: hidden; /* giữ bo góc cho header */
-    }
-
-    /* KHU VỰC CUỘN RIÊNG */
-    .table-scroll{
-      max-height: 520px;         /* chỉnh chiều cao để có scroll */
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
-
-    table{
-      width:100%;
-      border-collapse: collapse;
-    }
-
-    thead th{
-      background: var(--header);
-      color:#fff;
-      text-align:left;
-      font-weight:700;
-      padding: 18px 22px;
-      position: sticky; /* header dính khi cuộn */
-      top: 0;
-      z-index: 2;
-    }
-
-    tbody td{
-      padding: 18px 22px;
-      color: var(--text);
-      font-size: 15px;
-    }
-
-    tbody tr:nth-child(even){
-      background: var(--row-alt);
-    }
-
-    /* nhìn giống ảnh hơn tí */
-    tbody tr:hover{
-      background: #edeaff;
-    }
-
-    /* optional: style scrollbar (Chrome/Edge) */
-    .table-scroll::-webkit-scrollbar{ width: 10px; }
-    .table-scroll::-webkit-scrollbar-track{ background: transparent; }
-    .table-scroll::-webkit-scrollbar-thumb{
-      background: rgba(17,24,39,.18);
-      border-radius: 999px;
-      border: 2px solid #fff;
-    }
-
-    /* responsive nhỏ màn */
-    @media (max-width: 720px){
-      thead th, tbody td{ padding: 14px 14px; }
-    }
-  </style>
-</head>
-<body>
-
-  <div class="table-card">
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
                 <th>Tư vấn viên</th>
                 <th>Nhu cầu</th>
                 <th>Trùng</th>
@@ -98,16 +88,17 @@
                 <th>Chốt nóng</th>
                 <th>Chốt cũ</th>
                 <th>Đơn huỷ</th>
+
                 <th>Tổng mess</th>
                 <th>Tổng đơn</th>
                 <th>Đơn/mess nhu cầu</th>
                 <th>Đơn/mess tổng</th>
                 <th>Tỉ lệ huỷ</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          <tr><td>Nguyễn Văn A</td><td class="small-muted">12</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">50</td><td class="small-muted">10</td><td class="small-muted">0.83</td><td class="small-muted">0.20</td><td><span class="badge-accent">10%</span></td></tr>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- 35 dòng demo -->
+              <tr><td>Nguyễn Văn A</td><td class="small-muted">12</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">50</td><td class="small-muted">10</td><td class="small-muted">0.83</td><td class="small-muted">0.20</td><td><span class="badge-accent">10%</span></td></tr>
               <tr><td>Trần Thị B</td><td class="small-muted">8</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">2</td><td class="small-muted">2</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">30</td><td class="small-muted">6</td><td class="small-muted">0.75</td><td class="small-muted">0.20</td><td><span class="badge-accent">0%</span></td></tr>
               <tr><td>Lê Văn C</td><td class="small-muted">15</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">5</td><td class="small-muted">4</td><td class="small-muted">1</td><td class="small-muted">2</td><td class="small-muted">70</td><td class="small-muted">18</td><td class="small-muted">1.20</td><td class="small-muted">0.26</td><td><span class="badge-accent">11%</span></td></tr>
               <tr><td>Phạm Thị D</td><td class="small-muted">9</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">42</td><td class="small-muted">7</td><td class="small-muted">0.78</td><td class="small-muted">0.17</td><td><span class="badge-accent">0%</span></td></tr>
@@ -144,10 +135,97 @@
               <tr><td>Phan Văn II</td><td class="small-muted">12</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">4</td><td class="small-muted">3</td><td class="small-muted">1</td><td class="small-muted">1</td><td class="small-muted">60</td><td class="small-muted">13</td><td class="small-muted">1.08</td><td class="small-muted">0.22</td><td><span class="badge-accent">7%</span></td></tr>
               <tr><td>Trương Thị JJ</td><td class="small-muted">8</td><td class="small-muted">0</td><td class="small-muted">1</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">0</td><td class="small-muted">0</td><td class="small-muted">30</td><td class="small-muted">4</td><td class="small-muted">0.50</td><td class="small-muted">0.13</td><td><span class="badge-accent">0%</span></td></tr>
               <tr><td>Đặng Văn KK</td><td class="small-muted">17</td><td class="small-muted">3</td><td class="small-muted">2</td><td class="small-muted">6</td><td class="small-muted">5</td><td class="small-muted">2</td><td class="small-muted">1</td><td class="small-muted">86</td><td class="small-muted">19</td><td class="small-muted">1.12</td><td class="small-muted">0.22</td><td><span class="badge-accent">5%</span></td></tr>
-        </tbody>
-      </table>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
-  </div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function(){
+        var updated = document.getElementById('updated');
+        if(updated) updated.textContent = new Date().toLocaleString();
 
-</body>
+        // highlight percent > 10% (strict)
+        document.querySelectorAll('td span.badge-accent').forEach(function(el){
+          var txt = el.textContent.trim();
+          var m = txt.match(/([\d\.]+)%/);
+          if(m){
+            var val = parseFloat(m[1]);
+            if(val > 10){
+              el.classList.add('badge-danger');
+            }
+          }
+        });
+
+        // table sorting (click cycle: none -> asc -> desc -> none)
+        var table = document.querySelector('table');
+        if(!table) return;
+        var tbody = table.querySelector('tbody');
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.forEach(function(r,i){ r.dataset.originalIndex = i; });
+
+        var ths = Array.from(table.querySelectorAll('thead th'));
+        ths.forEach(function(th, idx){
+          th.style.cursor = 'pointer';
+          th.dataset.sortState = 'none';
+          th.addEventListener('click', function(){
+            // cycle state
+            var state = th.dataset.sortState;
+            // reset others
+            ths.forEach(function(o){ if(o !== th){ o.dataset.sortState = 'none'; o.classList.remove('sort-asc','sort-desc'); } });
+            if(state === 'none'){
+              th.dataset.sortState = 'asc';
+              th.classList.remove('sort-desc'); th.classList.add('sort-asc');
+              sortByColumn(idx, true);
+            } else if(state === 'asc'){
+              th.dataset.sortState = 'desc';
+              th.classList.remove('sort-asc'); th.classList.add('sort-desc');
+              sortByColumn(idx, false);
+            } else {
+              th.dataset.sortState = 'none';
+              th.classList.remove('sort-desc');
+              restoreOriginal();
+            }
+          });
+        });
+
+        function getCellValue(row, idx){
+          var cell = row.children[idx];
+          if(!cell) return '';
+          var span = cell.querySelector('span');
+          var txt = span ? span.textContent.trim() : cell.textContent.trim();
+          if(txt === '') return '';
+          // percent values like "12%" -> number
+          if(/^[\d.,]+%$/.test(txt)){
+            return parseFloat(txt.replace('%','').replace(/,/g,''));
+          }
+          // numeric values
+          var n = parseFloat(txt.replace(/,/g,''));
+          if(!isNaN(n)) return n;
+          return txt.toLowerCase();
+        }
+
+        function sortByColumn(idx, asc){
+          var sorted = rows.slice().sort(function(a,b){
+            var A = getCellValue(a, idx);
+            var B = getCellValue(b, idx);
+            var aNum = typeof A === 'number';
+            var bNum = typeof B === 'number';
+            if(aNum && bNum) return asc ? A - B : B - A;
+            if(aNum) return asc ? -1 : 1;
+            if(bNum) return asc ? 1 : -1;
+            if(A < B) return asc ? -1 : 1;
+            if(A > B) return asc ? 1 : -1;
+            return 0;
+          });
+          sorted.forEach(function(r){ tbody.appendChild(r); });
+        }
+
+        function restoreOriginal(){
+          var original = rows.slice().sort(function(a,b){ return a.dataset.originalIndex - b.dataset.originalIndex; });
+          original.forEach(function(r){ tbody.appendChild(r); });
+        }
+      });
+    </script>
+  </body>
 </html>

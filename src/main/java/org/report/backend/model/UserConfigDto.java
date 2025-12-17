@@ -36,5 +36,33 @@ public class UserConfigDto {
   public String getBaseId() {
     return larkNode != null ? larkNode.getObjToken() : "";
   }
+
+  private String khachHangTableId;
+  private String lichHenTableId;
+  private String traoDoiTableId;
+
+  public String getKhachHangTableId() {
+    return khachHangTableId != null ? khachHangTableId : "";
+  }
+
+  public void setKhachHangTableId(String khachHangTableId) {
+    this.khachHangTableId = khachHangTableId;
+  }
+
+  public String getLichHenTableId() {
+    return lichHenTableId != null ? lichHenTableId : "";
+  }
+
+  public void setLichHenTableId(String lichHenTableId) {
+    this.lichHenTableId = lichHenTableId;
+  }
+
+  public String getTraoDoiTableId() {
+    return traoDoiTableId != null ? traoDoiTableId : "";
+  }
+
+  public void setTraoDoiTableId(String traoDoiTableId) {
+    this.traoDoiTableId = traoDoiTableId;
+  }
 }
 

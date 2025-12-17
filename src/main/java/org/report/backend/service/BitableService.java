@@ -48,6 +48,86 @@ public class BitableService {
     return filtered;
   }
 
+  /** Lấy tất cả tables từ một Base ID */
+  public List<BitableTable> getTablesByBaseId(HttpSession session, String baseId) throws Exception {
+    if (baseId == null || baseId.isBlank()) {
+      return new ArrayList<>();
+    }
+    return listTables(session, baseId, DEFAULT_TABLE_PAGE_SIZE);
+  }
+
+  /** Tìm kiếm records từ một table với filter tùy chỉnh */
+  public List<BitableRecord> searchRecords(HttpSession session, String baseId, String tableId,
+      List<String> fieldNames, String viewId, String timeRangeValue) throws Exception {
+    if (baseId == null || baseId.isBlank() || tableId == null || tableId.isBlank()) {
+      return new ArrayList<>();
+    }
+
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    List<BitableRecord> allRecords = new ArrayList<>();
+    String pageToken = null;
+    boolean hasMore = true;
+
+    while (hasMore) {
+      String url = buildSearchRecordsUrl(baseId, tableId, DEFAULT_RECORD_PAGE_SIZE, pageToken);
+      
+      RecordSearchRequest bodyReq = new RecordSearchRequest();
+      bodyReq.automaticFields = false;
+      bodyReq.fieldNames = fieldNames;
+      bodyReq.viewId = viewId;
+
+      Condition c = new Condition();
+      c.fieldName = "Ngày tạo";
+      c.operator = "is";
+      c.value = List.of(timeRangeValue);
+
+      Filter f = new Filter();
+      f.conjunction = "and";
+      f.conditions = List.of(c);
+
+      bodyReq.filter = f;
+
+      HttpEntity<RecordSearchRequest> entity = new HttpEntity<>(bodyReq, headers);
+
+      ResponseEntity<RecordSearchResponse> response;
+      try {
+        response = restTemplate.exchange(url, HttpMethod.POST, entity, RecordSearchResponse.class);
+      } catch (RestClientException e) {
+        log.error("Error calling Bitable search records API: {}", e.getMessage(), e);
+        throw new RuntimeException("Failed to call Bitable search records API: " + e.getMessage(), e);
+      }
+
+      if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+        throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
+      }
+
+      RecordSearchResponse body = response.getBody();
+      if (body.code != 0) {
+        throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
+      }
+
+      if (body.data != null && body.data.items != null) {
+        allRecords.addAll(body.data.items);
+      }
+
+      hasMore = body.data != null && Boolean.TRUE.equals(body.data.hasMore);
+      pageToken = (body.data != null) ? body.data.pageToken : null;
+
+      if (hasMore && (pageToken == null || pageToken.isBlank())) {
+        log.warn("Search records has_more=true but page_token is empty. Break to avoid infinite loop.");
+        break;
+      }
+    }
+
+    return allRecords;
+  }
+
   /** ✅ Build summary theo 1 table (đếm status trong lúc search + paginate) */
   public SaleSummaryRow buildSaleSummaryForTable(HttpSession session, BitableTable table, String timeRangeValue)
       throws Exception {

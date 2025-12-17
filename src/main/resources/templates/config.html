@@ -101,6 +101,7 @@
           <li><a href="/">Trang Chủ</a></li>
           <li><a href="#reports">Báo Cáo</a></li>
           <li><a href="/config">Cấu Hình</a></li>
+          <li><a href="/stats">Thống Kê</a></li>
           <li><a href="#contact">Liên Hệ</a></li>
         </ul>
       </nav>
@@ -252,8 +253,9 @@
           <th>Tên POS</th>
           <th>Tên Lark</th>
           <th>Base ID</th>
-          <th>Table ID</th>
-          <th>Open ID</th>
+          <th>Table ID - Khách Hàng</th>
+          <th>Table ID - Lịch Hẹn</th>
+          <th>Table ID - Trao Đổi</th>
           <th>Hành Động</th>
         </tr>
         </thead>
@@ -262,9 +264,10 @@
           <td class="stt" th:text="${iterStat.count}"></td>
           <td th:text="${userConfig.posName}"></td>
           <td th:text="${userConfig.larkName} ?: '-'"></td>
-          <td th:text="${userConfig.baseId} ?: '-'"></td>
-          <td>tblABC123456</td>
-          <td>ou_xyz789</td>
+          <td th:text="${userConfig.baseId} ?: '-'" style="font-family: monospace; font-size: 0.85rem;"></td>
+          <td th:text="${userConfig.khachHangTableId} ?: '-'" style="font-family: monospace; font-size: 0.85rem;"></td>
+          <td th:text="${userConfig.lichHenTableId} ?: '-'" style="font-family: monospace; font-size: 0.85rem;"></td>
+          <td th:text="${userConfig.traoDoiTableId} ?: '-'" style="font-family: monospace; font-size: 0.85rem;"></td>
           <td>
             <button class="action-btn">Sửa</button>
             <button class="action-btn delete">Xóa</button>
@@ -272,7 +275,7 @@
         </tr>
 
         <tr th:if="${#lists.isEmpty(userConfigs)}">
-          <td colspan="7" style="text-align: center; padding: 2rem; color: #666;">
+          <td colspan="8" style="text-align: center; padding: 2rem; color: #666;">
             Không có dữ liệu nhân viên
           </td>
         </tr>

@@ -21,7 +21,7 @@ public class SaleSummaryRow {
   private double donPerMessNhuCau;
   private double donPerMessTong;
 
-  private int tiLeHuyPercent;
+  private double tiLeHuyPercent;
 
   public SaleSummaryRow() {}
 
@@ -129,11 +129,11 @@ public class SaleSummaryRow {
     this.donPerMessTong = donPerMessTong;
   }
 
-  public int getTiLeHuyPercent() {
+  public double getTiLeHuyPercent() {
     return tiLeHuyPercent;
   }
 
-  public void setTiLeHuyPercent(int tiLeHuyPercent) {
+  public void setTiLeHuyPercent(double tiLeHuyPercent) {
     this.tiLeHuyPercent = tiLeHuyPercent;
   }
 }

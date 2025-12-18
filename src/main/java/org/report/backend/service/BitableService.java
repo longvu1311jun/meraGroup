@@ -128,6 +128,156 @@ public class BitableService {
     return allRecords;
   }
 
+  /** Tìm kiếm khách hàng theo số điện thoại */
+  public List<BitableRecord> searchCustomerByPhone(HttpSession session, String baseId, String tableId,
+      String phoneNumber, String viewId) throws Exception {
+    if (baseId == null || baseId.isBlank() || tableId == null || tableId.isBlank() 
+        || phoneNumber == null || phoneNumber.isBlank()) {
+      return new ArrayList<>();
+    }
+
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    List<BitableRecord> allRecords = new ArrayList<>();
+    String pageToken = null;
+    boolean hasMore = true;
+
+    while (hasMore) {
+      String url = buildSearchRecordsUrl(baseId, tableId, DEFAULT_RECORD_PAGE_SIZE, pageToken);
+      
+      RecordSearchRequest bodyReq = new RecordSearchRequest();
+      bodyReq.automaticFields = false;
+      bodyReq.fieldNames = List.of("Điện thoại", "Tên khách hàng", "Mã KH", "Tuổi", "Địa chỉ", "Link", "Tên Liệu Trình");
+      if (viewId != null && !viewId.isBlank()) {
+        bodyReq.viewId = viewId;
+      }
+
+      Condition c = new Condition();
+      c.fieldName = "Điện thoại";
+      c.operator = "is";
+      c.value = List.of(phoneNumber.trim());
+
+      Filter f = new Filter();
+      f.conjunction = "and";
+      f.conditions = List.of(c);
+
+      bodyReq.filter = f;
+
+      HttpEntity<RecordSearchRequest> entity = new HttpEntity<>(bodyReq, headers);
+
+      ResponseEntity<RecordSearchResponse> response;
+      try {
+        response = restTemplate.exchange(url, HttpMethod.POST, entity, RecordSearchResponse.class);
+      } catch (RestClientException e) {
+        log.error("Error calling Bitable search customer by phone API: {}", e.getMessage(), e);
+        throw new RuntimeException("Failed to call Bitable search customer API: " + e.getMessage(), e);
+      }
+
+      if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+        throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
+      }
+
+      RecordSearchResponse body = response.getBody();
+      if (body.code != 0) {
+        throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
+      }
+
+      if (body.data != null && body.data.items != null) {
+        allRecords.addAll(body.data.items);
+      }
+
+      hasMore = body.data != null && Boolean.TRUE.equals(body.data.hasMore);
+      pageToken = (body.data != null) ? body.data.pageToken : null;
+
+      if (hasMore && (pageToken == null || pageToken.isBlank())) {
+        log.warn("Search customer has_more=true but page_token is empty. Break to avoid infinite loop.");
+        break;
+      }
+    }
+
+    return allRecords;
+  }
+
+  /** Tìm kiếm trao đổi hoặc lịch hẹn theo record_id của khách hàng */
+  public List<BitableRecord> searchRecordsByCustomerId(HttpSession session, String baseId, String tableId,
+      String customerRecordId, List<String> fieldNames, String viewId) throws Exception {
+    if (baseId == null || baseId.isBlank() || tableId == null || tableId.isBlank() 
+        || customerRecordId == null || customerRecordId.isBlank()) {
+      return new ArrayList<>();
+    }
+
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    List<BitableRecord> allRecords = new ArrayList<>();
+    String pageToken = null;
+    boolean hasMore = true;
+
+    while (hasMore) {
+      String url = buildSearchRecordsUrl(baseId, tableId, DEFAULT_RECORD_PAGE_SIZE, pageToken);
+      
+      RecordSearchRequest bodyReq = new RecordSearchRequest();
+      bodyReq.automaticFields = false;
+      bodyReq.fieldNames = fieldNames;
+      if (viewId != null && !viewId.isBlank()) {
+        bodyReq.viewId = viewId;
+      }
+
+      Condition c = new Condition();
+      c.fieldName = "Khách Hàng";
+      c.operator = "is";
+      c.value = List.of(customerRecordId);
+
+      Filter f = new Filter();
+      f.conjunction = "and";
+      f.conditions = List.of(c);
+
+      bodyReq.filter = f;
+
+      HttpEntity<RecordSearchRequest> entity = new HttpEntity<>(bodyReq, headers);
+
+      ResponseEntity<RecordSearchResponse> response;
+      try {
+        response = restTemplate.exchange(url, HttpMethod.POST, entity, RecordSearchResponse.class);
+      } catch (RestClientException e) {
+        log.error("Error calling Bitable search records by customer ID API: {}", e.getMessage(), e);
+        throw new RuntimeException("Failed to call Bitable search records API: " + e.getMessage(), e);
+      }
+
+      if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+        throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
+      }
+
+      RecordSearchResponse body = response.getBody();
+      if (body.code != 0) {
+        throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
+      }
+
+      if (body.data != null && body.data.items != null) {
+        allRecords.addAll(body.data.items);
+      }
+
+      hasMore = body.data != null && Boolean.TRUE.equals(body.data.hasMore);
+      pageToken = (body.data != null) ? body.data.pageToken : null;
+
+      if (hasMore && (pageToken == null || pageToken.isBlank())) {
+        log.warn("Search records by customer ID has_more=true but page_token is empty. Break to avoid infinite loop.");
+        break;
+      }
+    }
+
+    return allRecords;
+  }
+
   /** ✅ Build summary theo 1 table (đếm status trong lúc search + paginate) */
   public SaleSummaryRow buildSaleSummaryForTable(HttpSession session, BitableTable table, String timeRangeValue)
       throws Exception {
@@ -229,16 +379,17 @@ public class BitableService {
     long nhuCauDenominator = nhuCau + chotNong + chotCu + donHuy;
     double donPerMessNhuCau = (nhuCauDenominator == 0)
         ? 0.0
-        : round2(((double) tongDon) / (double) nhuCauDenominator);
+        : ((long)(((double) tongDon / (double) nhuCauDenominator)*100 * 10 + 0.5)) / 10.0;
     row.setDonPerMessNhuCau(donPerMessNhuCau);
 
     // Đơn/mess tổng = Tổng đơn / Tổng mess (cũng giữ dạng tỷ lệ 0.x)
     double donPerMessTong = (tongMess == 0)
         ? 0.0
-        : round2(((double) tongDon) / (double) tongMess);
+        : ((long)(((double) tongDon / (double) tongMess)*100 * 10 + 0.5)) / 10.0;
+//    System.out.println("check :" +donPerMessTong);
     row.setDonPerMessTong(donPerMessTong);
 
-    int tiLeHuy = (tongDon == 0) ? 0 : (int) Math.round(((double) donHuy * 100.0) / (double) tongDon);
+    double tiLeHuy = (tongDon == 0) ? 0 : ((long)(((double) donHuy / (double) tongDon)*100 * 10 + 0.5)) / 10.0;
     row.setTiLeHuyPercent(tiLeHuy);
 
     return row;

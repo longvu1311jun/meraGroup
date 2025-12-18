@@ -273,14 +273,14 @@
           <!-- Đơn/mess nhu cầu & Đơn/mess tổng hiển thị dạng xx,x% (frontend nhân 100 và thêm %) -->
           <!-- Hiển thị phần trăm với 1 chữ số sau dấu phẩy -->
           <td class="center"
-              th:text="${#strings.replace(#numbers.formatDecimal(r.donPerMessNhuCau * 100, 1, 1), '.', ',') + '%'}">0,0%</td>
+              th:text="${(r.donPerMessNhuCau) + '%'}">0,0%</td>
           <td class="center"
-              th:text="${#strings.replace(#numbers.formatDecimal(r.donPerMessTong * 100, 1, 1), '.', ',') + '%'}">0,0%</td>
+              th:text="${(r.donPerMessTong) + '%'}">0,0%</td>
 
           <td class="center">
             <span
                 th:text="${r.tiLeHuyPercent} + '%'"
-                th:class="'pill ' + (${r.tiLeHuyPercent} <= 9 ? 'green' : (${r.tiLeHuyPercent} >= 10 ? 'orange' : 'red'))">
+                th:class="'pill ' + (${r.tiLeHuyPercent} <10 ? 'green' : (${r.tiLeHuyPercent} >= 10?'red':'green'))">
               0%
             </span>
           </td>

@@ -21,7 +21,15 @@ public class LarkTokenService {
   private static final Logger log = LoggerFactory.getLogger(LarkTokenService.class);
   private static final String SESSION_TOKEN_INFO = "LARK_TOKEN_INFO";
 
+  private final Object refreshMutex = new Object();
+
   private final RestTemplate restTemplate = new RestTemplate();
+
+  private final TokenStorageService tokenStorage;
+
+  public LarkTokenService(TokenStorageService tokenStorage) {
+    this.tokenStorage = tokenStorage;
+  }
 
   @Value("${lark.app-id}")
   private String appId;
@@ -29,18 +37,40 @@ public class LarkTokenService {
   @Value("${lark.app-secret}")
   private String appSecret;
 
+  /**
+   * Default: log masked tokens only.
+   * Set lark.token.log-full=true (dev only) if you really want full token printed.
+   */
+  @Value("${lark.token.log-full:false}")
+  private boolean logFullToken;
+
   public boolean hasToken(HttpSession session) {
-    return session.getAttribute(SESSION_TOKEN_INFO) != null;
+    if (tokenStorage.hasToken()) return true;
+    return session != null && session.getAttribute(SESSION_TOKEN_INFO) != null;
+  }
+
+  /** Convenience for jobs/background calls (no session). */
+  public boolean hasToken() {
+    return tokenStorage.hasToken();
   }
 
   public TokenInfo getCurrentToken(HttpSession session) {
+    TokenInfo fromGlobal = tokenStorage.get();
+    if (fromGlobal != null) return fromGlobal;
+
+    if (session == null) return null;
     Object v = session.getAttribute(SESSION_TOKEN_INFO);
     return (v instanceof TokenInfo) ? (TokenInfo) v : null;
   }
 
+  /** Convenience for jobs/background calls (no session). */
+  public TokenInfo getCurrentToken() {
+    return tokenStorage.get();
+  }
+
   public String getAccessToken(HttpSession session, boolean forceRefresh) throws Exception {
     if (!hasToken(session)) {
-      throw new IllegalStateException("No token in session. Please login first.");
+      throw new IllegalStateException("No token. Please login first.");
     }
 
     if (forceRefresh) {
@@ -56,7 +86,12 @@ public class LarkTokenService {
     return token.getAccessToken();
   }
 
-  /** 
+  /** Convenience for jobs/background calls (no session). */
+  public String getAccessToken(boolean forceRefresh) throws Exception {
+    return getAccessToken(null, forceRefresh);
+  }
+
+  /**
    * Tự động refresh token nếu:
    * - Token đã hết hạn (expired)
    * - Token sắp hết hạn trong 60 giây
@@ -68,7 +103,7 @@ public class LarkTokenService {
       log.warn("⚠️ No token found in session");
       return;
     }
-    
+
     if (token.getExpiresAt() == null) {
       log.warn("⚠️ Token has no expiresAt, cannot check expiration");
       return;
@@ -82,7 +117,7 @@ public class LarkTokenService {
 
     long remainMs = expiresAtMs - now;
     long remainSeconds = remainMs / 1000;
-    
+
     // Kiểm tra nếu token đã được cập nhật hơn 1 giờ trước
     boolean needsRefreshByTime = false;
     if (token.getLastUpdated() != null) {
@@ -92,7 +127,7 @@ public class LarkTokenService {
           .toEpochMilli();
       long timeSinceUpdateMs = now - lastUpdatedMs;
       long timeSinceUpdateHours = timeSinceUpdateMs / (1000 * 60 * 60);
-      
+
       if (timeSinceUpdateHours >= 1) {
         needsRefreshByTime = true;
         log.info("🕐 Token was updated {} hours ago, will refresh", timeSinceUpdateHours);
@@ -102,36 +137,36 @@ public class LarkTokenService {
     // Refresh nếu: đã hết hạn, sắp hết hạn (< 60s), hoặc đã được cập nhật > 1 giờ
     boolean isExpired = remainMs <= 0;
     boolean isExpiringSoon = remainMs <= 60_000;
-    
+
     if (isExpired || isExpiringSoon || needsRefreshByTime) {
       log.info("🔄 Auto-refreshing token - Expired: {}, Expiring soon (<60s): {}, Needs refresh by time (>1h): {}, Remaining: {} seconds",
           isExpired, isExpiringSoon, needsRefreshByTime, remainSeconds);
-      
+
       try {
         TokenInfo oldToken = token;
         TokenInfo newToken = refreshToken(session);
-        
+
         // Log chi tiết để kiểm tra
-        log.info("✅ AUTO REFRESH SUCCESSFUL (FULL):");
-        log.info("   📅 Old Token - AccessToken: {}, RefreshToken: {}, ExpiresAt: {}, LastUpdated: {}", 
-            oldToken.getAccessToken(), 
-            oldToken.getRefreshToken(),
+        log.info("✅ AUTO REFRESH SUCCESSFUL:");
+        log.info("   oldAccessToken={}, oldRefreshToken={}, oldExpiresAt={}, oldLastUpdated={}",
+            displayToken(oldToken.getAccessToken()),
+            displayToken(oldToken.getRefreshToken()),
             oldToken.getExpiresAt(),
             oldToken.getLastUpdated());
-        log.info("   📅 New Token - AccessToken: {}, RefreshToken: {}, ExpiresAt: {}, LastUpdated: {}, ExpiresIn: {} seconds",
-            newToken.getAccessToken(),
-            newToken.getRefreshToken(),
+        log.info("   newAccessToken={}, newRefreshToken={}, newExpiresAt={}, newLastUpdated={}, expiresIn={}s",
+            displayToken(newToken.getAccessToken()),
+            displayToken(newToken.getRefreshToken()),
             newToken.getExpiresAt(),
             newToken.getLastUpdated(),
             newToken.getExpiresIn());
         log.info("   ⏰ Refresh completed at: {}", LocalDateTime.now());
-        
+
       } catch (Exception e) {
         log.error("❌ Auto refresh token failed: {}", e.getMessage(), e);
         throw new RuntimeException("Failed to auto-refresh token: " + e.getMessage(), e);
       }
     } else {
-      log.debug("✓ Token still valid - Remaining: {} seconds, LastUpdated: {}", 
+      log.debug("✓ Token still valid - Remaining: {} seconds, LastUpdated: {}",
           remainSeconds, token.getLastUpdated());
     }
   }
@@ -176,12 +211,17 @@ public class LarkTokenService {
         body.data.expiresIn
     );
 
-    session.setAttribute(SESSION_TOKEN_INFO, tokenInfo);
+    // ✅ Save global token (so scheduler + all functions use the same token)
+    tokenStorage.save(tokenInfo);
 
-    // In FULL token ra log để debug (chỉ nên dùng trong môi trường dev/test)
-    log.info("✅ Token saved (FULL):");
-    log.info("   accessToken = {}", tokenInfo.getAccessToken());
-    log.info("   refreshToken = {}", tokenInfo.getRefreshToken());
+    // Keep session copy (UI + backward compatible)
+    if (session != null) {
+      session.setAttribute(SESSION_TOKEN_INFO, tokenInfo);
+    }
+
+    log.info("✅ Token saved:");
+    log.info("   accessToken = {}", displayToken(tokenInfo.getAccessToken()));
+    log.info("   refreshToken = {}", displayToken(tokenInfo.getRefreshToken()));
     log.info("   tokenType = {}", tokenInfo.getTokenType());
     log.info("   expiresIn = {} seconds", tokenInfo.getExpiresIn());
     log.info("   expiresAt = {}", tokenInfo.getExpiresAt());
@@ -190,69 +230,76 @@ public class LarkTokenService {
     return tokenInfo;
   }
 
+  /** Refresh token (global). For scheduler usage. */
+  public TokenInfo refreshToken() throws Exception {
+    return refreshToken(null);
+  }
+
   /** Refresh token + log token mới sau khi refresh xong */
   public TokenInfo refreshToken(HttpSession session) throws Exception {
-    TokenInfo current = getCurrentToken(session);
-    if (current == null || current.getRefreshToken() == null || current.getRefreshToken().isBlank()) {
-      throw new IllegalStateException("No refresh_token available. Please login again.");
+    synchronized (refreshMutex) {
+      TokenInfo current = getCurrentToken(session);
+      if (current == null || current.getRefreshToken() == null || current.getRefreshToken().isBlank()) {
+        throw new IllegalStateException("No refresh_token available. Please login again.");
+      }
+
+      String url = "https://open.larksuite.com/open-apis/authen/v1/refresh_access_token";
+
+      HttpHeaders headers = new HttpHeaders();
+      headers.setContentType(MediaType.APPLICATION_JSON);
+      headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+      RefreshReq req = new RefreshReq();
+      req.appId = appId;
+      req.appSecret = appSecret;
+      req.grantType = "refresh_token";
+      req.refreshToken = current.getRefreshToken();
+
+      HttpEntity<RefreshReq> entity = new HttpEntity<>(req, headers);
+
+      ResponseEntity<RefreshResp> resp;
+      try {
+        resp = restTemplate.exchange(url, HttpMethod.POST, entity, RefreshResp.class);
+      } catch (RestClientException e) {
+        throw new RuntimeException("Refresh token failed: " + e.getMessage(), e);
+      }
+
+      if (resp.getStatusCode() != HttpStatus.OK || resp.getBody() == null) {
+        throw new RuntimeException("Refresh token HTTP error: " + resp.getStatusCode());
+      }
+
+      RefreshResp body = resp.getBody();
+      if (body.code != 0 || body.data == null) {
+        throw new RuntimeException("Refresh token error: " + body.code + " - " + body.msg);
+      }
+
+      TokenInfo newToken = buildTokenInfo(
+          body.data.accessToken,
+          body.data.refreshToken,
+          body.data.tokenType,
+          body.data.expiresIn
+      );
+
+      // ✅ Update global token
+      tokenStorage.save(newToken);
+
+      // Keep session copy (UI + backward compatible)
+      if (session != null) {
+        session.setAttribute(SESSION_TOKEN_INFO, newToken);
+      }
+
+      log.info("🔄 REFRESH TOKEN COMPLETED:");
+      log.info("   newAccessToken={}, newRefreshToken={}",
+          displayToken(newToken.getAccessToken()),
+          displayToken(newToken.getRefreshToken()));
+      log.info("   expiresAt={}, lastUpdated={}, expiresIn={}s, tokenType={}",
+          newToken.getExpiresAt(),
+          newToken.getLastUpdated(),
+          newToken.getExpiresIn(),
+          newToken.getTokenType());
+
+      return newToken;
     }
-
-    String url = "https://open.larksuite.com/open-apis/authen/v1/refresh_access_token";
-
-    HttpHeaders headers = new HttpHeaders();
-    headers.setContentType(MediaType.APPLICATION_JSON);
-    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-
-    RefreshReq req = new RefreshReq();
-    req.appId = appId;
-    req.appSecret = appSecret;
-    req.grantType = "refresh_token";
-    req.refreshToken = current.getRefreshToken();
-
-    HttpEntity<RefreshReq> entity = new HttpEntity<>(req, headers);
-
-    ResponseEntity<RefreshResp> resp;
-    try {
-      resp = restTemplate.exchange(url, HttpMethod.POST, entity, RefreshResp.class);
-    } catch (RestClientException e) {
-      throw new RuntimeException("Refresh token failed: " + e.getMessage(), e);
-    }
-
-    if (resp.getStatusCode() != HttpStatus.OK || resp.getBody() == null) {
-      throw new RuntimeException("Refresh token HTTP error: " + resp.getStatusCode());
-    }
-
-    RefreshResp body = resp.getBody();
-    if (body.code != 0 || body.data == null) {
-      throw new RuntimeException("Refresh token error: " + body.code + " - " + body.msg);
-    }
-
-    TokenInfo newToken = buildTokenInfo(
-        body.data.accessToken,
-        body.data.refreshToken,
-        body.data.tokenType,
-        body.data.expiresIn
-    );
-
-    session.setAttribute(SESSION_TOKEN_INFO, newToken);
-
-    // Log chi tiết token mới (FULL để kiểm tra refresh)
-    log.info("🔄 REFRESH TOKEN COMPLETED (FULL):");
-    log.info("   📝 New AccessToken: {}", newToken.getAccessToken());
-    log.info("   📝 New RefreshToken: {}", newToken.getRefreshToken());
-    log.info("   ⏰ ExpiresAt: {}", newToken.getExpiresAt());
-    log.info("   ⏰ LastUpdated: {}", newToken.getLastUpdated());
-    log.info("   ⏱️ ExpiresIn: {} seconds ({} minutes)", 
-        newToken.getExpiresIn(), 
-        newToken.getExpiresIn() / 60);
-    log.info("   📊 TokenType: {}", newToken.getTokenType());
-    
-    // Log thời gian hiện tại để so sánh
-    LocalDateTime now = LocalDateTime.now();
-    log.info("   🕐 Current Time: {}", now);
-    log.info("   ⏳ Token will expire in: {} seconds", newToken.getExpiresIn());
-
-    return newToken;
   }
 
   // ===================== helpers =====================
@@ -328,6 +375,11 @@ public class LarkTokenService {
     String s = token.trim();
     if (s.length() <= 12) return "****";
     return s.substring(0, 6) + "****" + s.substring(s.length() - 6);
+  }
+
+  private String displayToken(String token) {
+    if (logFullToken) return token;
+    return mask(token);
   }
 
   // ===================== DTOs =====================

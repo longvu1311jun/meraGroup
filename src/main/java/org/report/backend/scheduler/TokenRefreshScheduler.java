@@ -1,32 +1,46 @@
 package org.report.backend.scheduler;
 
+import org.report.backend.model.TokenInfo;
+import org.report.backend.service.LarkTokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Token refresh scheduler.
- * Tokens are automatically refreshed when getAccessToken() is called
- * if they are expired, about to expire (within 5 minutes), or last updated more than 1 hour ago.
+ * Global token refresh scheduler (project 1 style).
+ *
+ * - Every 1 hour: refresh access token using refresh_token (if available)
+ * - All services will then use this global token
  */
 @Component
 public class TokenRefreshScheduler {
-  
+
   private static final Logger logger = LoggerFactory.getLogger(TokenRefreshScheduler.class);
-  
-  /**
-   * Token refresh is handled per-session when getAccessToken() is called.
-   * Tokens will be automatically refreshed:
-   * - If expired
-   * - If expiring within 5 minutes
-   * - If last updated more than 1 hour ago
-   * 
-   * This scheduler runs every hour as a reminder/logging mechanism.
-   */
-  @Scheduled(fixedRate = 3600000) // 1 hour = 3600000 ms
+
+  private final LarkTokenService tokenService;
+
+  public TokenRefreshScheduler(LarkTokenService tokenService) {
+    this.tokenService = tokenService;
+  }
+
+  @Scheduled(
+      fixedRateString = "${lark.token.refresh-rate-ms:3600000}",
+      initialDelayString = "${lark.token.refresh-initial-delay-ms:60000}"
+  )
   public void refreshTokenScheduler() {
-    logger.info("Token refresh scheduler running - tokens are refreshed automatically when needed (every 1 hour or on-demand)");
+    try {
+      TokenInfo current = tokenService.getCurrentToken(null);
+      if (current == null || current.getRefreshToken() == null || current.getRefreshToken().isBlank()) {
+        logger.info("⏳ Scheduler: no refresh_token yet (need login first)");
+        return;
+      }
+
+      TokenInfo newToken = tokenService.refreshToken();
+      logger.info("✅ Scheduler: refreshed token. expiresAt={}, lastUpdated={}",
+          newToken.getExpiresAt(), newToken.getLastUpdated());
+    } catch (Exception e) {
+      logger.error("❌ Scheduler: refresh token failed: {}", e.getMessage(), e);
+    }
   }
 }
-

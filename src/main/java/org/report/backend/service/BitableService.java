@@ -1,11 +1,14 @@
 package org.report.backend.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpSession;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.report.backend.model.BitableRecord;
@@ -13,7 +16,12 @@ import org.report.backend.model.BitableTable;
 import org.report.backend.model.SaleSummaryRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -26,11 +34,16 @@ public class BitableService {
   private static final String SALE_BITABLE_APP_TOKEN = "VsLjbnWlfapGXhszsvqlRm6QgIf";
   private static final String SALE_VIEW_ID = "vewE3Ope6x";
 
+  // Bitable app/token đích cho bảng "Từ chối chăm"
+  private static final String TU_CHOI_CHAM_APP_TOKEN = "Fah8bsKwQan10vsg9Q1l5LOhgsg";
+  private static final String TU_CHOI_CHAM_TABLE_ID = "tblsiLRl6QUcbG8V";
+
   private static final int DEFAULT_TABLE_PAGE_SIZE = 50;
   private static final int DEFAULT_RECORD_PAGE_SIZE = 500;
 
   private final RestTemplate restTemplate;
   private final LarkTokenService tokenService;
+  private final ObjectMapper objectMapper = new ObjectMapper();
 
   public BitableService(LarkTokenService tokenService) {
     this.restTemplate = new RestTemplate();
@@ -201,6 +214,150 @@ public class BitableService {
     }
 
     return allRecords;
+  }
+
+  /**
+   * Tìm tất cả khách hàng có "Tên Liệu Trình" chứa "Từ chối chăm" trong 1 table CSKH.
+   * Dùng view khách hàng chung, lấy đầy đủ các field cần để insert sang bảng "Từ chối chăm".
+   */
+  public List<BitableRecord> searchRejectedCareCustomers(HttpSession session, String baseId, String tableId,
+      String viewId) throws Exception {
+    if (baseId == null || baseId.isBlank() || tableId == null || tableId.isBlank()) {
+      return new ArrayList<>();
+    }
+
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    List<BitableRecord> allRecords = new ArrayList<>();
+    String pageToken = null;
+    boolean hasMore = true;
+
+    while (hasMore) {
+      String url = buildSearchRecordsUrl(baseId, tableId, DEFAULT_RECORD_PAGE_SIZE, pageToken);
+
+      RecordSearchRequest bodyReq = new RecordSearchRequest();
+      bodyReq.automaticFields = false;
+      bodyReq.fieldNames = List.of(
+          "Mã KH",
+          "Tên khách hàng",
+          "Địa chỉ",
+          "Tỉnh/Thành phố",
+          "Điện thoại",
+          "Tên Liệu Trình",
+          "Link",
+          "Tuổi",
+          "Bệnh nền",
+          "Người CSKH",
+          "Ngày tạo"
+      );
+      if (viewId != null && !viewId.isBlank()) {
+        bodyReq.viewId = viewId;
+      }
+
+      Condition c = new Condition();
+      c.fieldName = "Tên Liệu Trình";
+      c.operator = "contains";
+      c.value = List.of("Từ chối chăm");
+
+      Filter f = new Filter();
+      f.conjunction = "and";
+      f.conditions = List.of(c);
+
+      bodyReq.filter = f;
+
+      HttpEntity<RecordSearchRequest> entity = new HttpEntity<>(bodyReq, headers);
+
+      ResponseEntity<RecordSearchResponse> response;
+      try {
+        response = restTemplate.exchange(url, HttpMethod.POST, entity, RecordSearchResponse.class);
+      } catch (RestClientException e) {
+        log.error("Error calling Bitable search rejected care customers API: {}", e.getMessage(), e);
+        throw new RuntimeException("Failed to call Bitable search rejected care customers API: " + e.getMessage(), e);
+      }
+
+      if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+        throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
+      }
+
+      RecordSearchResponse body = response.getBody();
+      if (body.code != 0) {
+        throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
+      }
+
+      if (body.data != null && body.data.items != null) {
+        allRecords.addAll(body.data.items);
+      }
+
+      hasMore = body.data != null && Boolean.TRUE.equals(body.data.hasMore);
+      pageToken = (body.data != null) ? body.data.pageToken : null;
+
+      if (hasMore && (pageToken == null || pageToken.isBlank())) {
+        log.warn("Search rejected care customers has_more=true but page_token is empty. Break to avoid infinite loop.");
+        break;
+      }
+    }
+
+    return allRecords;
+  }
+
+  /**
+   * Kiểm tra trong bảng "Từ chối chăm" đích đã tồn tại bản ghi với số điện thoại này chưa.
+   * Nếu đã tồn tại thì trả về true, để bỏ qua không insert trùng.
+   */
+  public boolean existsRejectedCareByPhone(HttpSession session, String phoneNumber) throws Exception {
+    if (phoneNumber == null || phoneNumber.isBlank()) {
+      return false;
+    }
+
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    String url = buildSearchRecordsUrl(TU_CHOI_CHAM_APP_TOKEN, TU_CHOI_CHAM_TABLE_ID, 1, null);
+
+    RecordSearchRequest bodyReq = new RecordSearchRequest();
+    bodyReq.automaticFields = false;
+    bodyReq.fieldNames = List.of("Điện thoại");
+
+    Condition c = new Condition();
+    c.fieldName = "Điện thoại";
+    c.operator = "is";
+    c.value = List.of(phoneNumber.trim());
+
+    Filter f = new Filter();
+    f.conjunction = "and";
+    f.conditions = List.of(c);
+
+    bodyReq.filter = f;
+
+    HttpEntity<RecordSearchRequest> entity = new HttpEntity<>(bodyReq, headers);
+
+    ResponseEntity<RecordSearchResponse> response;
+    try {
+      response = restTemplate.exchange(url, HttpMethod.POST, entity, RecordSearchResponse.class);
+    } catch (RestClientException e) {
+      log.error("Error calling Bitable existsRejectedCareByPhone API: {}", e.getMessage(), e);
+      throw new RuntimeException("Failed to call Bitable existsRejectedCareByPhone API: " + e.getMessage(), e);
+    }
+
+    if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+      throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
+    }
+
+    RecordSearchResponse body = response.getBody();
+    if (body.code != 0) {
+      throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
+    }
+
+    return body.data != null && body.data.items != null && !body.data.items.isEmpty();
   }
 
   /** Tìm kiếm trao đổi hoặc lịch hẹn theo record_id của khách hàng */
@@ -447,6 +604,62 @@ public class BitableService {
     return url;
   }
 
+  // ================== create record ==================
+
+  /**
+   * Tạo bản ghi mới trong bảng "Từ chối chăm" đích, dùng access token của user hiện tại.
+   * fields phải theo đúng structure của Bitable (Map lồng nhau, list, v.v.).
+   */
+  public void createRejectedCareRecord(HttpSession session, Map<String, Object> fields) throws Exception {
+    if (fields == null || fields.isEmpty()) {
+      return;
+    }
+
+    String accessToken = tokenService.getAccessToken(session, false);
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setBearerAuth(accessToken);
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+    Map<String, Object> body = new HashMap<>();
+    body.put("fields", fields);
+
+    String url = buildCreateRecordUrl(TU_CHOI_CHAM_APP_TOKEN, TU_CHOI_CHAM_TABLE_ID);
+
+    // In ra curl tương đương để debug
+    try {
+      String jsonBody = objectMapper.writeValueAsString(body);
+      String escapedJson = jsonBody.replace("'", "\\'");
+      String curl = "curl -i -X POST '" + url + "' \\\n"
+          + " -H 'Content-Type: application/json' \\\n"
+          + " -H 'Authorization: Bearer " + accessToken + "' \\\n"
+          + " -d '" + escapedJson + "'";
+      log.info("CURL create rejected care record:\n{}", curl);
+    } catch (JsonProcessingException e) {
+      log.warn("Failed to serialize body for curl log: {}", e.getMessage());
+    }
+
+    HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+
+    ResponseEntity<CreateRecordResponse> response;
+    try {
+      response = restTemplate.exchange(url, HttpMethod.POST, entity, CreateRecordResponse.class);
+    } catch (RestClientException e) {
+      log.error("Error calling Bitable create rejected care record API: {}", e.getMessage(), e);
+      throw new RuntimeException("Failed to call Bitable create rejected care record API: " + e.getMessage(), e);
+    }
+
+    if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+      throw new RuntimeException("Bitable HTTP error when creating record: " + response.getStatusCode());
+    }
+
+    CreateRecordResponse bodyRes = response.getBody();
+    if (bodyRes.code != 0) {
+      throw new RuntimeException("Bitable error when creating record: " + bodyRes.code + " - " + bodyRes.msg);
+    }
+  }
+
   private static class BitableTablesResponse {
     @JsonProperty("code") int code;
     @JsonProperty("msg") String msg;
@@ -467,6 +680,11 @@ public class BitableService {
     String url = base + "?page_size=" + pageSize;
     if (pageToken != null && !pageToken.isBlank()) url += "&page_token=" + pageToken;
     return url;
+  }
+
+  private String buildCreateRecordUrl(String appToken, String tableId) {
+    return "https://open.larksuite.com/open-apis/bitable/v1/apps/" + appToken
+        + "/tables/" + tableId + "/records";
   }
 
   private static class RecordSearchResponse {
@@ -516,6 +734,11 @@ public class BitableService {
     @JsonProperty("field_name") String fieldName;
     @JsonProperty("operator") String operator;
     @JsonProperty("value") List<String> value;
+  }
+
+  private static class CreateRecordResponse {
+    @JsonProperty("code") int code;
+    @JsonProperty("msg") String msg;
   }
 
   // ================== helpers ==================

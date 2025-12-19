@@ -1,7 +1,10 @@
 package org.report.backend.controller;
 
 import jakarta.servlet.http.HttpSession;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -9,8 +12,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import jakarta.annotation.PreDestroy;
 import org.report.backend.model.BitableRecord;
 import org.report.backend.model.UserConfigDto;
@@ -24,7 +25,6 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
-import java.util.HashMap;
 
 @Controller
 public class CustomerSearchController {
@@ -421,6 +421,203 @@ public class CustomerSearchController {
       fields.put("Tên Liệu Trình", String.join(", ", 
           list.stream().map(Object::toString).toArray(String[]::new)));
     }
+  }
+
+  /**
+   * Chuẩn hóa field text: nếu là list/map có {text, type} thì lấy ra chuỗi text,
+   * tránh gửi structure phức tạp sang bảng đích.
+   */
+  private String extractPlainText(Object value) {
+    if (value == null) return null;
+
+    if (value instanceof String s) {
+      return s;
+    }
+
+    if (value instanceof List<?> list) {
+      StringBuilder sb = new StringBuilder();
+      for (Object item : list) {
+        String part = extractPlainText(item);
+        if (part != null && !part.isBlank()) {
+          if (!sb.isEmpty()) sb.append(", ");
+          sb.append(part);
+        }
+      }
+      return sb.toString();
+    }
+
+    if (value instanceof Map<?, ?> map) {
+      Object text = map.get("text");
+      if (text != null) return text.toString();
+      Object name = map.get("name");
+      if (name != null) return name.toString();
+    }
+
+    return value.toString();
+  }
+
+  /**
+   * Chuẩn hóa field Link: bỏ key "type", chỉ giữ "link" và "text".
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> normalizeLinkField(Object linkValue) {
+    if (linkValue == null) {
+      return null;
+    }
+
+    if (linkValue instanceof Map<?, ?> rawMap) {
+      Map<String, Object> map = new HashMap<>();
+      Object link = rawMap.get("link");
+      Object text = rawMap.get("text");
+      if (link != null) map.put("link", link.toString());
+      if (text != null) map.put("text", text.toString());
+      return map;
+    }
+
+    // Nếu chỉ là string thì dùng cho cả link và text
+    String s = linkValue.toString();
+    Map<String, Object> map = new HashMap<>();
+    map.put("link", s);
+    map.put("text", s);
+    return map;
+  }
+
+  // ================== Đồng bộ "Từ chối chăm" ==================
+
+  /**
+   * API nội bộ: quét tất cả CSKH, tìm khách hàng có "Tên Liệu Trình" chứa "Từ chối chăm"
+   * và tạo bản ghi tương ứng trong bảng "Từ chối chăm" đích.
+   *
+   * - Dùng: gọi từ browser hoặc tool: /api/sync_tu_choi_cham
+   * - Không có UI riêng, chỉ trả JSON.
+   */
+  @GetMapping("/api/sync_tu_choi_cham")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> syncTuChoiCham(HttpSession session) {
+    Map<String, Object> result = new HashMap<>();
+
+    if (!tokenService.hasToken(session)) {
+      result.put("error", "Vui lòng đăng nhập trước");
+      return ResponseEntity.ok(result);
+    }
+
+    try {
+      tokenService.autoRefreshTokenIfNeeded(session);
+
+      @SuppressWarnings("unchecked")
+      List<UserConfigDto> userConfigs =
+          (List<UserConfigDto>) session.getAttribute(SESSION_USER_CONFIGS);
+
+      if (userConfigs == null || userConfigs.isEmpty()) {
+        result.put("error",
+            "Chưa có dữ liệu cấu hình. Vui lòng vào trang /config để load dữ liệu trước.");
+        return ResponseEntity.ok(result);
+      }
+
+      int totalBases = 0;
+      int totalFound = 0;
+      int totalInserted = 0;
+      int totalFailed = 0;
+
+      List<String> insertedPhones = new ArrayList<>();
+
+      for (UserConfigDto userConfig : userConfigs) {
+        String baseId = userConfig.getBaseId();
+        String khachHangTableId = userConfig.getKhachHangTableId();
+
+        if (baseId == null || baseId.isBlank() || khachHangTableId == null
+            || khachHangTableId.isBlank()) {
+          continue;
+        }
+
+        totalBases++;
+        log.info("🔎 Sync 'Từ chối chăm' for baseId={}, tableId={}", baseId, khachHangTableId);
+
+        List<BitableRecord> records = bitableService.searchRejectedCareCustomers(
+            session, baseId, khachHangTableId, KHACH_HANG_VIEW_ID);
+
+        if (records == null || records.isEmpty()) {
+          continue;
+        }
+
+        totalFound += records.size();
+
+        for (BitableRecord r : records) {
+          Map<String, Object> srcFields = r.getFields();
+          if (srcFields == null) continue;
+
+          // Lấy số điện thoại để check trùng ở bảng "Từ chối chăm"
+          Object rawPhone = srcFields.get("Điện thoại");
+          String phoneStr = (rawPhone != null) ? rawPhone.toString().trim() : "";
+          if (!phoneStr.isEmpty()) {
+            boolean exists = bitableService.existsRejectedCareByPhone(session, phoneStr);
+            if (exists) {
+              log.info("⏭️  Skip 'Từ chối chăm' for phone={} because it already exists in target table", phoneStr);
+              continue;
+            }
+          }
+
+          Map<String, Object> destFields = new HashMap<>();
+          destFields.put("Mã KH", srcFields.get("Mã KH"));
+          // Chuẩn hóa các field text: bỏ wrapper {text,type}, chỉ lấy string
+          destFields.put("Tên khách hàng", extractPlainText(srcFields.get("Tên khách hàng")));
+          destFields.put("Địa chỉ", extractPlainText(srcFields.get("Địa chỉ")));
+          destFields.put("Tỉnh/Thành phố", srcFields.get("Tỉnh/Thành phố"));
+          destFields.put("Điện thoại", srcFields.get("Điện thoại"));
+          destFields.put("Tên Liệu Trình", srcFields.get("Tên Liệu Trình"));
+          // Chuẩn hóa Link: bỏ field type, giữ link + text
+          destFields.put("Link", normalizeLinkField(srcFields.get("Link")));
+          destFields.put("Tuổi", srcFields.get("Tuổi"));
+          destFields.put("Bệnh nền", srcFields.get("Bệnh nền"));
+
+          Object ngayTao = srcFields.get("Ngày tạo");
+          if (ngayTao == null) {
+            ngayTao = System.currentTimeMillis();
+          }
+          destFields.put("Ngày tạo", ngayTao);
+
+          // Ưu tiên giữ nguyên field "Người CSKH" từ bản ghi gốc (chứa id dạng ou_...)
+          Object nguoiCskhField = srcFields.get("Người CSKH");
+          if (nguoiCskhField != null) {
+            destFields.put("Người CSKH", nguoiCskhField);
+          }
+
+          // Tạo bản ghi mới trong bảng "Từ chối chăm"
+          try {
+            bitableService.createRejectedCareRecord(session, destFields);
+            totalInserted++;
+            insertedPhones.add(phoneStr);
+            log.info("✅ Inserted 'Từ chối chăm' record for phone: {}", phoneStr);
+          } catch (Exception ex) {
+            totalFailed++;
+            log.error("❌ Failed to insert 'Từ chối chăm' record for phone {}: {}", phoneStr, ex.getMessage());
+          }
+        }
+      }
+
+      result.put("message", "Đã đồng bộ xong 'Từ chối chăm'");
+      result.put("totalBases", totalBases);
+      result.put("totalFound", totalFound);
+      result.put("totalInserted", totalInserted);
+      result.put("totalFailed", totalFailed);
+      result.put("phones", insertedPhones);
+
+    } catch (Exception e) {
+      log.error("Error when syncing 'Từ chối chăm': {}", e.getMessage(), e);
+      result.put("error", "Lỗi khi đồng bộ 'Từ chối chăm': " + e.getMessage());
+    }
+
+    return ResponseEntity.ok(result);
+  }
+
+  /**
+   * Shortcut để chạy sync "Từ chối chăm" trực tiếp trên browser:
+   * truy cập /updateTTC sẽ gọi lại logic /api/sync_tu_choi_cham và trả về JSON.
+   */
+  @GetMapping("/updateTTC")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> updateTuChoiCham(HttpSession session) {
+    return syncTuChoiCham(session);
   }
 
   @PreDestroy

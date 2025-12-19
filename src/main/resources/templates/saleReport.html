@@ -166,6 +166,43 @@
     nav a:hover { opacity: 0.8; }
     .content-section { padding: 2rem 0; }
     .section-title { font-size: 1.4rem; margin-bottom: 1rem; color: #667eea; display:flex; align-items:center; gap:0.5rem }
+    
+    /* Loading popup */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .loading-content {
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .loading-spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .loading-overlay.hidden {
+      display: none;
+    }
   </style>
 </head>
 
@@ -185,7 +222,15 @@
   </div>
 </header>
 
-<div th:if="${!hasToken}" class="no-token">
+<!-- Loading popup -->
+<div id="loadingOverlay" class="loading-overlay hidden">
+  <div class="loading-content">
+    <div class="loading-spinner"></div>
+    <div>Đang tải dữ liệu...</div>
+  </div>
+</div>
+
+<div id="noTokenSection" class="no-token" style="display:none;">
   <h2 style="margin:0 0 10px 0;">Chưa có token 😵‍💫</h2>
   <div style="color:var(--muted)">Đăng nhập Lark trước rồi quay lại trang report nha.</div>
   <div style="margin-top:14px;">
@@ -193,40 +238,41 @@
   </div>
 </div>
 
-<div th:if="${hasToken}">
+<div id="contentSection" style="display:none;">
   <section class="content-section">
     <div class="container">
   <div class="topbar">
     <div>
       <div class="title">📈 Sale Report (Tổng hợp theo tư vấn viên)</div>
-      <div class="meta">
-        <!-- Thời gian lọc: <b th:text="${range}">LastMonth</b> -->
-        <span th:if="${fetchedAt != null}"> • Thống kê lần cuối: <b th:text="${fetchedAt}">-</b></span>
-        <span th:if="${totalAgents != null}"> • Tư vấn viên: <b th:text="${totalAgents}">0</b></span>
-        </div>
+      <div class="meta" id="metaInfo">
+        <!-- Will be populated by JavaScript -->
       </div>
+    </div>
 
     <div class="actions">
       <input id="searchInput" class="search" type="search" placeholder="Tìm theo tên tư vấn viên" />
 
-      <form method="get" action="/saleReport">
-        <select name="range">
-          <option value="CurrentMonth" th:selected="${range == 'CurrentMonth'}">Tháng này</option>
-          <option value="LastMonth" th:selected="${range == 'LastMonth'}">Tháng trước</option>
-<!--          <option value="Last7Days" th:selected="${range == 'Last7Days'}">Last7Days</option>-->
+      <form method="get" action="/saleReport" id="rangeForm">
+        <select name="range" id="rangeSelect">
+          <option value="CurrentMonth" id="optCurrentMonth">Tháng này</option>
+          <option value="LastMonth" id="optLastMonth">Tháng trước</option>
         </select>
         <button class="ghost" type="submit">Lọc</button>
       </form>
 
-      <form method="post" th:action="@{/saleReport/refresh}">
-        <input type="hidden" name="range" th:value="${range}" />
+      <form method="post" action="/saleReport/refresh" id="refreshForm">
+        <input type="hidden" name="range" id="refreshRange" />
         <button class="primary" type="submit">🔄 Làm mới dữ liệu</button>
       </form>
+
+      <a href="#" id="exportExcelBtn" class="primary" style="text-decoration: none; display: inline-block; padding: 10px 20px; border-radius: 8px; background: #28a745; color: white; border: none; cursor: pointer; font-size: 14px; font-weight: 500;">
+        📥 Xuất Excel
+      </a>
     </div>
   </div>
 
-  <div th:if="${error}" class="alert error">
-    <b>Lỗi:</b> <span th:text="${error}"></span>
+  <div id="errorAlert" class="alert error" style="display:none;">
+    <b>Lỗi:</b> <span id="errorText"></span>
   </div>
 
   <div class="table-card">
@@ -252,47 +298,8 @@
         </tr>
         </thead>
 
-        <tbody>
-        <tr th:each="r, st : ${rows}">
-          <td th:text="${st.count}">1</td>
-          <td th:text="${r.tableName}">Nguyễn Văn A</td>
-
-          <td class="center" th:text="${r.nhuCau}">0</td>
-          <td class="center" th:text="${r.trung}">0</td>
-          <td class="center" th:text="${r.rac}">0</td>
-          <td class="center" th:text="${r.khongTuongTac}">0</td>
-
-          <td class="center" th:text="${r.chotNong}">0</td>
-          <td class="center" th:text="${r.chotCu}">0</td>
-
-          <td class="center" th:text="${r.donHuy}">0</td>
-
-          <td class="center" th:text="${r.tongMess}">0</td>
-          <td class="center" th:text="${r.tongDon}">0</td>
-
-          <!-- Đơn/mess nhu cầu & Đơn/mess tổng hiển thị dạng xx,x% (frontend nhân 100 và thêm %) -->
-          <!-- Hiển thị phần trăm với 1 chữ số sau dấu phẩy -->
-          <td class="center"
-              th:text="${(r.donPerMessNhuCau) + '%'}">0,0%</td>
-          <td class="center"
-              th:text="${(r.donPerMessTong) + '%'}">0,0%</td>
-
-          <td class="center">
-            <span
-                th:text="${r.tiLeHuyPercent} + '%'"
-                th:class="'pill ' + (${r.tiLeHuyPercent} <10 ? 'green' : (${r.tiLeHuyPercent} >= 10?'red':'green'))">
-              0%
-            </span>
-          </td>
-
-          <!-- <td class="mono" th:text="${r.tableId}">tblxxx</td> -->
-        </tr>
-
-        <tr th:if="${#lists.isEmpty(rows)}">
-          <td colspan="15" style="text-align:center; padding:20px; color:var(--muted);">
-            Không có dữ liệu (hoặc filter không match).
-          </td>
-        </tr>
+        <tbody id="tableBody">
+        <!-- Data will be populated by JavaScript -->
         </tbody>
       </table>
     </div>
@@ -309,6 +316,15 @@ document.addEventListener('DOMContentLoaded', function(){
   let rows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
   const originalRows = rows.slice();
   const searchInput = document.getElementById('searchInput');
+  const optCurrentMonth = document.getElementById('optCurrentMonth');
+  const optLastMonth = document.getElementById('optLastMonth');
+
+  // Cập nhật label tháng động
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+  if (optCurrentMonth) optCurrentMonth.textContent = `Tháng ${currentMonth}`;
+  if (optLastMonth) optLastMonth.textContent = `Tháng ${lastMonth}`;
 
   const ths = Array.from(table.querySelectorAll('thead th'));
   ths.forEach((th, idx)=>{
@@ -385,6 +401,143 @@ document.addEventListener('DOMContentLoaded', function(){
     searchInput.addEventListener('input', ()=>{ applyFilter(); });
   }
 
+});
+
+// Load data from API
+(async function() {
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  const noTokenSection = document.getElementById('noTokenSection');
+  const contentSection = document.getElementById('contentSection');
+  const tableBody = document.getElementById('tableBody');
+  const metaInfo = document.getElementById('metaInfo');
+  const errorAlert = document.getElementById('errorAlert');
+  const errorText = document.getElementById('errorText');
+  const rangeSelect = document.getElementById('rangeSelect');
+  const refreshRange = document.getElementById('refreshRange');
+  
+  // Get range from URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  const range = urlParams.get('range') || 'CurrentMonth';
+  rangeSelect.value = range;
+  refreshRange.value = range;
+  
+  // Show loading
+  loadingOverlay.classList.remove('hidden');
+  
+  try {
+    const response = await fetch(`/api/saleReport/data?range=${encodeURIComponent(range)}`);
+    const data = await response.json();
+    
+    loadingOverlay.classList.add('hidden');
+    
+    if (!data.hasToken) {
+      noTokenSection.style.display = 'block';
+      return;
+    }
+    
+    contentSection.style.display = 'block';
+    
+    if (data.error) {
+      errorAlert.style.display = 'block';
+      errorText.textContent = data.error;
+      return;
+    }
+    
+    // Update meta info
+    let metaHtml = '';
+    if (data.fetchedAt) {
+      metaHtml += ` • Thống kê lần cuối: <b>${data.fetchedAt}</b>`;
+    }
+    if (data.totalAgents != null) {
+      metaHtml += ` • Tư vấn viên: <b>${data.totalAgents}</b>`;
+    }
+    metaInfo.innerHTML = metaHtml;
+    
+    // Render table
+    if (data.rows && data.rows.length > 0) {
+      tableBody.innerHTML = '';
+      data.rows.forEach((row, index) => {
+        const tr = document.createElement('tr');
+        const tiLeHuy = row.tiLeHuyPercent || 0;
+        const tiLeHuyClass = tiLeHuy < 10 ? 'green' : 'red';
+        tr.innerHTML = `
+          <td>${index + 1}</td>
+          <td>${escapeHtml(row.tableName || '-')}</td>
+          <td class="center">${formatNumber(row.nhuCau || 0)}</td>
+          <td class="center">${formatNumber(row.trung || 0)}</td>
+          <td class="center">${formatNumber(row.rac || 0)}</td>
+          <td class="center">${formatNumber(row.khongTuongTac || 0)}</td>
+          <td class="center">${formatNumber(row.chotNong || 0)}</td>
+          <td class="center">${formatNumber(row.chotCu || 0)}</td>
+          <td class="center">${formatNumber(row.donHuy || 0)}</td>
+          <td class="center">${formatNumber(row.tongMess || 0)}</td>
+          <td class="center">${formatNumber(row.tongDon || 0)}</td>
+          <td class="center">
+            <span class="center">${formatPercent(row.donPerMessNhuCau || 0)}</span>
+          </td>
+          <td class="center">
+            <span class="center">${formatPercent(row.donPerMessTong || 0)}</span>
+          </td>
+          <td class="center">
+            <span class="pill ${tiLeHuyClass}">${formatPercent(tiLeHuy)}</span>
+          </td>
+        `;
+        tableBody.appendChild(tr);
+      });
+      
+      // Reinitialize table functionality
+      setTimeout(() => {
+        const tbody = document.querySelector('tbody');
+        if (tbody) {
+          rows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.querySelectorAll('td').length > 0);
+          originalRows = rows.map(r => r.cloneNode(true));
+        }
+      }, 100);
+    } else {
+      tableBody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:2rem;">Không có dữ liệu</td></tr>';
+    }
+    
+  } catch (error) {
+    loadingOverlay.classList.add('hidden');
+    contentSection.style.display = 'block';
+    errorAlert.style.display = 'block';
+    errorText.textContent = 'Lỗi khi tải dữ liệu: ' + error.message;
+  }
+})();
+
+function formatNumber(num) {
+  return new Intl.NumberFormat('vi-VN').format(num);
+}
+
+function formatPercent(num) {
+  return num.toFixed(1).replace('.', ',') + '%';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Export Excel functionality
+document.addEventListener('DOMContentLoaded', function() {
+  const exportBtn = document.getElementById('exportExcelBtn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      const urlParams = new URLSearchParams(window.location.search);
+      const range = urlParams.get('range') || 'CurrentMonth';
+      const exportUrl = `/saleReport/export?range=${encodeURIComponent(range)}`;
+      
+      // Tạo link tạm để download
+      const link = document.createElement('a');
+      link.href = exportUrl;
+      link.download = '';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  }
 });
 </script>
 

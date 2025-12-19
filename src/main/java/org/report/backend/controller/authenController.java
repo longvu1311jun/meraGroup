@@ -6,8 +6,15 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpSession;
 import org.report.backend.model.BitableTable;
 import org.report.backend.model.BitableRecord;
@@ -22,12 +29,15 @@ import org.report.backend.service.PosService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+import java.util.HashMap;
 
 @Controller
 public class authenController {
@@ -44,6 +54,7 @@ public class authenController {
   private final PosService posService;
   private final LarkWikiService larkWikiService;
   private final BitableService bitableService;
+  private final ExecutorService executorService;
 
   public authenController(LarkTokenService tokenService, PosService posService, LarkWikiService larkWikiService,
       BitableService bitableService) {
@@ -51,6 +62,23 @@ public class authenController {
     this.posService = posService;
     this.larkWikiService = larkWikiService;
     this.bitableService = bitableService;
+    // Tạo thread pool với 5 threads để xử lý stats song song
+    this.executorService = Executors.newFixedThreadPool(5);
+  }
+
+  @PreDestroy
+  public void destroy() {
+    if (executorService != null) {
+      executorService.shutdown();
+      try {
+        if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+          executorService.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        executorService.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
+    }
   }
 
   @GetMapping("/")
@@ -264,8 +292,25 @@ public class authenController {
       return "redirect:/";
     }
 
+    // ✅ Render view ngay, không chờ data
+    model.addAttribute("customerMonth", customerMonth);
+    return "stats";
+  }
+
+  @GetMapping("/api/stats/data")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> getStatsData(
+      @RequestParam(value = "customerMonth", required = false, defaultValue = "CurrentMonth") String customerMonth,
+      HttpSession session) {
+    Map<String, Object> response = new HashMap<>();
+    
+    if (!tokenService.hasToken(session)) {
+      response.put("error", "Vui lòng đăng nhập trước");
+      return ResponseEntity.ok(response);
+    }
+
     try {
-      log.info("🔍 Checking token status for /stats endpoint");
+      log.info("🔍 Loading stats data for customerMonth: {}", customerMonth);
       tokenService.autoRefreshTokenIfNeeded(session);
 
       // Validate customerMonth parameter
@@ -281,19 +326,19 @@ public class authenController {
       // Nếu chọn CurrentMonth và có cache, dùng cache
       if (customerMonth.equals("CurrentMonth") && cachedStats != null && fetchedAt != null) {
         log.info("Using cached employee stats from session");
-        model.addAttribute("statsList", cachedStats);
-        model.addAttribute("fetchedAt", fetchedAt);
-        model.addAttribute("fromCache", true);
-        model.addAttribute("customerMonth", customerMonth);
+        response.put("statsList", cachedStats);
+        response.put("fetchedAt", fetchedAt.toString());
+        response.put("fromCache", true);
+        response.put("customerMonth", customerMonth);
         
         // Tính tổng từ cache
         long totalKhach = cachedStats.stream().mapToLong(EmployeeStatsDto::getTongKhach).sum();
         long totalLich = cachedStats.stream().mapToLong(EmployeeStatsDto::getTongLich).sum();
         long totalHoanThanh = cachedStats.stream().mapToLong(EmployeeStatsDto::getHoanThanh).sum();
-        model.addAttribute("totalKhach", totalKhach);
-        model.addAttribute("totalLich", totalLich);
-        model.addAttribute("totalHoanThanh", totalHoanThanh);
-        return "stats";
+        response.put("totalKhach", totalKhach);
+        response.put("totalLich", totalLich);
+        response.put("totalHoanThanh", totalHoanThanh);
+        return ResponseEntity.ok(response);
       }
 
       // 2) ❌ Cache miss hoặc chọn LastMonth -> Lấy dữ liệu mới
@@ -317,35 +362,35 @@ public class authenController {
         LocalDateTime nowDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault());
         session.setAttribute(SESSION_EMPLOYEE_STATS, statsList);
         session.setAttribute(SESSION_EMPLOYEE_STATS_FETCHED_AT, nowDt);
-        model.addAttribute("fetchedAt", nowDt);
-        model.addAttribute("fromCache", false);
+        response.put("fetchedAt", nowDt.toString());
+        response.put("fromCache", false);
       } else {
         // LastMonth không cache, chỉ hiển thị
         long nowMs = Instant.now().toEpochMilli();
         LocalDateTime nowDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault());
-        model.addAttribute("fetchedAt", nowDt);
-        model.addAttribute("fromCache", false);
+        response.put("fetchedAt", nowDt.toString());
+        response.put("fromCache", false);
       }
       
-      model.addAttribute("statsList", statsList);
-      model.addAttribute("customerMonth", customerMonth);
+      response.put("statsList", statsList);
+      response.put("customerMonth", customerMonth);
       
       // Tính tổng
       long totalKhach = statsList.stream().mapToLong(EmployeeStatsDto::getTongKhach).sum();
       long totalLich = statsList.stream().mapToLong(EmployeeStatsDto::getTongLich).sum();
       long totalHoanThanh = statsList.stream().mapToLong(EmployeeStatsDto::getHoanThanh).sum();
-      model.addAttribute("totalKhach", totalKhach);
-      model.addAttribute("totalLich", totalLich);
-      model.addAttribute("totalHoanThanh", totalHoanThanh);
+      response.put("totalKhach", totalKhach);
+      response.put("totalLich", totalLich);
+      response.put("totalHoanThanh", totalHoanThanh);
 
     } catch (Exception e) {
       log.error("Error loading stats: {}", e.getMessage(), e);
-      model.addAttribute("statsList", new ArrayList<EmployeeStatsDto>());
-      model.addAttribute("error", "Lỗi khi tải thống kê: " + e.getMessage());
-      model.addAttribute("customerMonth", customerMonth);
+      response.put("statsList", new ArrayList<EmployeeStatsDto>());
+      response.put("error", "Lỗi khi tải thống kê: " + e.getMessage());
+      response.put("customerMonth", customerMonth);
     }
 
-    return "stats";
+    return ResponseEntity.ok(response);
   }
 
   @PostMapping("/stats/refresh")
@@ -374,14 +419,36 @@ public class authenController {
 
   private List<EmployeeStatsDto> calculateEmployeeStats(HttpSession session,
       List<UserConfigDto> userConfigs, String customerMonthRange) throws Exception {
-    List<EmployeeStatsDto> statsList = new ArrayList<>();
+    List<EmployeeStatsDto> statsList = Collections.synchronizedList(new ArrayList<>());
 
     // customerMonthRange: "CurrentMonth" hoặc "LastMonth" - dùng cho cả API lấy khách hàng và lịch hẹn
     // Cả hai API đều filter theo cùng tháng để đảm bảo tính nhất quán
     String khachHangTimeRange = customerMonthRange != null ? customerMonthRange : "CurrentMonth";
     String lichHenTimeRange = customerMonthRange != null ? customerMonthRange : "CurrentMonth";
 
-    for (UserConfigDto userConfig : userConfigs) {
+    // ✅ Chia danh sách userConfigs thành 5 phần để xử lý song song
+    int totalConfigs = userConfigs.size();
+    int chunkSize = Math.max(1, (totalConfigs + 4) / 5); // Chia thành 5 phần, làm tròn lên
+    
+    List<List<UserConfigDto>> chunks = new ArrayList<>();
+    for (int i = 0; i < totalConfigs; i += chunkSize) {
+      int end = Math.min(i + chunkSize, totalConfigs);
+      chunks.add(userConfigs.subList(i, end));
+    }
+    
+    // Đảm bảo có đúng 5 chunks (nếu ít hơn thì thêm empty lists)
+    while (chunks.size() < 5) {
+      chunks.add(Collections.emptyList());
+    }
+    
+    // Tạo các CompletableFuture để chạy song song
+    List<CompletableFuture<Void>> futures = new ArrayList<>();
+    
+    for (List<UserConfigDto> chunk : chunks) {
+      if (chunk.isEmpty()) continue;
+      
+      CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+        for (UserConfigDto userConfig : chunk) {
       String employeeName = userConfig.getPosName();
       String baseId = userConfig.getBaseId();
       String khachHangTableId = userConfig.getKhachHangTableId();
@@ -477,16 +544,29 @@ public class authenController {
           }
         }
 
-        stats.setTongLich(tongLich);
-        stats.setHoanThanhMuon(hoanThanhMuon);
-        stats.setHoanThanh(hoanThanh);
-        stats.setQuaHan(quaHan);
+          stats.setTongLich(tongLich);
+          stats.setHoanThanhMuon(hoanThanhMuon);
+          stats.setHoanThanh(hoanThanh);
+          stats.setQuaHan(quaHan);
 
-      } catch (Exception e) {
-        log.warn("Failed to calculate stats for employee {}: {}", employeeName, e.getMessage());
-      }
+        } catch (Exception e) {
+          log.warn("Failed to calculate stats for employee {}: {}", employeeName, e.getMessage());
+        }
 
-      statsList.add(stats);
+        statsList.add(stats);
+        }
+      }, executorService);
+      
+      futures.add(future);
+    }
+    
+    // Chờ tất cả các thread hoàn thành
+    try {
+      CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(120, TimeUnit.SECONDS);
+    } catch (TimeoutException e) {
+      log.warn("Timeout waiting for stats calculation threads");
+    } catch (Exception e) {
+      log.error("Error waiting for stats calculation threads: {}", e.getMessage(), e);
     }
 
     return statsList;

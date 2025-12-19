@@ -175,9 +175,53 @@
     }
     thead th.sortable{ cursor:pointer; }
     thead th .sort-indicator{ margin-left:8px; font-size:12px; opacity:0.9 }
+    
+    /* Loading popup */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .loading-content {
+      background: white;
+      padding: 2rem;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .loading-spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .loading-overlay.hidden {
+      display: none;
+    }
   </style>
 </head>
 <body>
+<!-- Loading popup -->
+<div id="loadingOverlay" class="loading-overlay hidden">
+  <div class="loading-content">
+    <div class="loading-spinner"></div>
+    <div>Đang tải dữ liệu...</div>
+  </div>
+</div>
 <header>
   <div class="container">
     <div class="header-content">
@@ -202,55 +246,51 @@
       <input id="searchInput" class="search-input" type="search" placeholder="Tìm theo tên nhân viên" />
     </div>
 
-    <div th:if="${error}" class="alert alert-error" th:text="${error}"></div>
-    <div th:if="${success}" class="alert alert-success" th:text="${success}"></div>
+    <div id="errorAlert" class="alert alert-error" style="display:none;"></div>
+    <div id="successAlert" class="alert alert-success" style="display:none;"></div>
 
     <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <div th:if="${fetchedAt != null}" style="color: #666; font-size: 0.9rem;">
-          <span th:if="${fromCache}">📦 Dữ liệu từ cache - </span>
-          <span th:unless="${fromCache}">🔄 Dữ liệu mới - </span>
-          Cập nhật lúc: <strong th:text="${#temporals.format(fetchedAt, 'dd/MM/yyyy HH:mm:ss')}"></strong>
+        <div id="fetchedAtInfo" style="color: #666; font-size: 0.9rem;">
+          <!-- Will be populated by JavaScript -->
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 1rem;">
         <!-- Nút chọn lọc tháng -->
         <div style="display: flex; gap: 0.5rem; background: white; padding: 0.5rem; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          <a th:href="@{/stats(customerMonth='CurrentMonth')}" 
-             th:class="${customerMonth == 'CurrentMonth' or customerMonth == null} ? 'month-btn active' : 'month-btn'"
+          <a href="/stats?customerMonth=CurrentMonth" id="currentMonthBtn" class="month-btn active"
              style="padding: 0.5rem 1rem; text-decoration: none; border-radius: 4px; transition: all 0.3s; font-weight: 500;">
             📅 Tháng Này
           </a>
-          <a th:href="@{/stats(customerMonth='LastMonth')}" 
-             th:class="${customerMonth == 'LastMonth'} ? 'month-btn active' : 'month-btn'"
+          <a href="/stats?customerMonth=LastMonth" id="lastMonthBtn" class="month-btn"
              style="padding: 0.5rem 1rem; text-decoration: none; border-radius: 4px; transition: all 0.3s; font-weight: 500;">
             📆 Tháng Trước
           </a>
         </div>
-        <form th:action="@{/stats/refresh}" method="post" style="display: inline;">
-          <input type="hidden" th:name="customerMonth" th:value="${customerMonth ?: 'CurrentMonth'}" />
+        <form action="/stats/refresh" method="post" style="display: inline;" id="refreshForm">
+          <input type="hidden" name="customerMonth" id="refreshCustomerMonth" />
           <button type="submit" class="refresh-btn">🔄 Làm Mới Dữ Liệu</button>
         </form>
       </div>
     </div>
 
     <!-- Summary Cards -->
-    <div class="stats-summary" th:if="${statsList != null and !#lists.isEmpty(statsList)}">
+    <div class="stats-summary" id="summaryCards" style="display:none;">
       <div class="summary-card">
         <h3>Tổng Nhân Viên</h3>
-        <div class="value" th:text="${#lists.size(statsList)}">0</div>
+        <div class="value" id="totalEmployees">0</div>
       </div>
       <div class="summary-card">
         <h3>Tổng Khách Hàng</h3>
-        <div class="value" th:text="${totalKhach ?: 0}">0</div>
+        <div class="value" id="totalKhach">0</div>
       </div>
       <div class="summary-card">
         <h3>Tổng Lịch Hẹn</h3>
-        <div class="value" th:text="${totalLich ?: 0}">0</div>
+        <div class="value" id="totalLich">0</div>
       </div>
       <div class="summary-card">
         <h3>Hoàn Thành</h3>
-        <div class="value" th:text="${totalHoanThanh ?: 0}">0</div>
+        <div class="value" id="totalHoanThanh">0</div>
       </div>
     </div>
 
@@ -268,22 +308,8 @@
           <th>Quá Hạn</th>
         </tr>
         </thead>
-        <tbody>
-        <tr th:each="stat, iterStat : ${statsList}">
-          <td class="stt" th:text="${iterStat.count}"></td>
-          <td class="employee-name" th:text="${stat.employeeName} ?: '-'"></td>
-          <td class="number-cell" th:text="${stat.tongKhach}" style="text-align: center">0</td>
-          <td class="number-cell" th:text="${stat.tongLich}" style="text-align: center">0</td>
-          <td class="number-cell" th:text="${stat.hoanThanhMuon}" style="text-align: center">0</td>
-          <td class="number-cell" th:text="${stat.hoanThanh}" style="text-align: center">0</td>
-          <td class="number-cell" th:text="${stat.quaHan}" style="text-align: center">0</td>
-        </tr>
-
-        <tr th:if="${#lists.isEmpty(statsList)}">
-          <td colspan="7" style="text-align: center; padding: 2rem; color: #666;">
-            Không có dữ liệu thống kê. Vui lòng kiểm tra cấu hình tại <a href="/config">trang cấu hình</a>.
-          </td>
-        </tr>
+        <tbody id="tableBody">
+        <!-- Data will be populated by JavaScript -->
         </tbody>
       </table>
     </div>
@@ -378,6 +404,118 @@
     }
 
   });
+
+// Load data from API
+(async function() {
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  const tableBody = document.getElementById('tableBody');
+  const fetchedAtInfo = document.getElementById('fetchedAtInfo');
+  const errorAlert = document.getElementById('errorAlert');
+  const successAlert = document.getElementById('successAlert');
+  const summaryCards = document.getElementById('summaryCards');
+  const currentMonthBtn = document.getElementById('currentMonthBtn');
+  const lastMonthBtn = document.getElementById('lastMonthBtn');
+  const refreshForm = document.getElementById('refreshForm');
+  const refreshCustomerMonth = document.getElementById('refreshCustomerMonth');
+  
+  // Get customerMonth from URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  const customerMonth = urlParams.get('customerMonth') || 'CurrentMonth';
+  refreshCustomerMonth.value = customerMonth;
+  
+  // Update active button
+  if (customerMonth === 'CurrentMonth') {
+    currentMonthBtn.classList.add('active');
+    lastMonthBtn.classList.remove('active');
+  } else {
+    currentMonthBtn.classList.remove('active');
+    lastMonthBtn.classList.add('active');
+  }
+  
+  // Show loading
+  loadingOverlay.classList.remove('hidden');
+  
+  try {
+    const response = await fetch(`/api/stats/data?customerMonth=${encodeURIComponent(customerMonth)}`);
+    const data = await response.json();
+    
+    loadingOverlay.classList.add('hidden');
+    
+    if (data.error) {
+      errorAlert.style.display = 'block';
+      errorAlert.textContent = data.error;
+      return;
+    }
+    
+    // Update fetchedAt info
+    if (data.fetchedAt) {
+      const fromCache = data.fromCache ? '📦 Dữ liệu từ cache - ' : '🔄 Dữ liệu mới - ';
+      const date = new Date(data.fetchedAt);
+      const formattedDate = date.toLocaleString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      fetchedAtInfo.innerHTML = `${fromCache}Cập nhật lúc: <strong>${formattedDate}</strong>`;
+    }
+    
+    // Update summary cards
+    if (data.statsList && data.statsList.length > 0) {
+      summaryCards.style.display = 'grid';
+      document.getElementById('totalEmployees').textContent = data.statsList.length;
+      document.getElementById('totalKhach').textContent = formatNumber(data.totalKhach || 0);
+      document.getElementById('totalLich').textContent = formatNumber(data.totalLich || 0);
+      document.getElementById('totalHoanThanh').textContent = formatNumber(data.totalHoanThanh || 0);
+    }
+    
+    // Render table
+    if (data.statsList && data.statsList.length > 0) {
+      tableBody.innerHTML = '';
+      data.statsList.forEach((stat, index) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="stt">${index + 1}</td>
+          <td class="employee-name">${escapeHtml(stat.employeeName || '-')}</td>
+          <td class="number-cell" style="text-align: center">${formatNumber(stat.tongKhach || 0)}</td>
+          <td class="number-cell" style="text-align: center">${formatNumber(stat.tongLich || 0)}</td>
+          <td class="number-cell" style="text-align: center">${formatNumber(stat.hoanThanhMuon || 0)}</td>
+          <td class="number-cell" style="text-align: center">${formatNumber(stat.hoanThanh || 0)}</td>
+          <td class="number-cell" style="text-align: center">${formatNumber(stat.quaHan || 0)}</td>
+        `;
+        tableBody.appendChild(tr);
+      });
+      
+      // Reinitialize table functionality
+      setTimeout(() => {
+        const tbody = document.querySelector('tbody');
+        if (tbody) {
+          rows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.querySelectorAll('td').length > 0);
+          originalRows = rows.map(r => r.cloneNode(true));
+        }
+      }, 100);
+    } else {
+      tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #666;">Không có dữ liệu thống kê. Vui lòng kiểm tra cấu hình tại <a href="/config">trang cấu hình</a>.</td></tr>';
+    }
+    
+  } catch (error) {
+    loadingOverlay.classList.add('hidden');
+    errorAlert.style.display = 'block';
+    errorAlert.textContent = 'Lỗi khi tải dữ liệu: ' + error.message;
+  }
+})();
+
+function formatNumber(num) {
+  return new Intl.NumberFormat('vi-VN').format(num);
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 </script>
 
 </body>

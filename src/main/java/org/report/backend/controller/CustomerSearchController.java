@@ -12,6 +12,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.Collections;
 import jakarta.annotation.PreDestroy;
 import org.report.backend.model.BitableRecord;
 import org.report.backend.model.UserConfigDto;
@@ -86,42 +88,97 @@ public class CustomerSearchController {
         return ResponseEntity.ok(response);
       }
 
-      // Tìm kiếm trong tất cả các CSKH
-      BitableRecord foundCustomer = null;
-      String foundBaseId = null;
-      String foundLichHenTableId = null;
-      String foundTraoDoiTableId = null;
-      String foundCskhName = null;
-
-      for (UserConfigDto userConfig : userConfigs) {
-        String baseId = userConfig.getBaseId();
-        String khachHangTableId = userConfig.getKhachHangTableId();
-
-        if (baseId == null || baseId.isBlank() || khachHangTableId == null || khachHangTableId.isBlank()) {
-          continue;
-        }
-
-        try {
-          List<BitableRecord> customers = bitableService.searchCustomerByPhone(
-              session, baseId, khachHangTableId, phoneNumber, KHACH_HANG_VIEW_ID);
-
-          if (customers != null && !customers.isEmpty()) {
-            foundCustomer = customers.get(0);
-            foundBaseId = baseId;
-            foundLichHenTableId = userConfig.getLichHenTableId();
-            foundTraoDoiTableId = userConfig.getTraoDoiTableId();
-            // Lấy tên CSKH từ mapping
-            foundCskhName = userConfig.getPosName();
-            if (foundCskhName == null || foundCskhName.isBlank()) {
-              foundCskhName = userConfig.getLarkName();
-            }
-            log.info("✅ Found customer in baseId: {}, tableId: {}, CSKH: {}", baseId, khachHangTableId, foundCskhName);
-            break;
-          }
-        } catch (Exception e) {
-          log.warn("Error searching customer in baseId {}: {}", baseId, e.getMessage());
-        }
+      // ✅ Chia danh sách userConfigs thành 5 phần để xử lý song song
+      int totalConfigs = userConfigs.size();
+      int chunkSize = Math.max(1, (totalConfigs + 4) / 5); // Chia thành 5 phần, làm tròn lên
+      
+      List<List<UserConfigDto>> chunks = new ArrayList<>();
+      for (int i = 0; i < totalConfigs; i += chunkSize) {
+        int end = Math.min(i + chunkSize, totalConfigs);
+        chunks.add(userConfigs.subList(i, end));
       }
+      
+      // Đảm bảo có đúng 5 chunks (nếu ít hơn thì thêm empty lists)
+      while (chunks.size() < 5) {
+        chunks.add(Collections.emptyList());
+      }
+      
+      // AtomicReference để lưu kết quả tìm thấy (thread-safe)
+      AtomicReference<BitableRecord> foundCustomerRef = new AtomicReference<>();
+      AtomicReference<String> foundBaseIdRef = new AtomicReference<>();
+      AtomicReference<String> foundLichHenTableIdRef = new AtomicReference<>();
+      AtomicReference<String> foundTraoDoiTableIdRef = new AtomicReference<>();
+      AtomicReference<String> foundCskhNameRef = new AtomicReference<>();
+      
+      // Tạo các CompletableFuture để chạy song song
+      List<CompletableFuture<Void>> futures = new ArrayList<>();
+      
+      for (List<UserConfigDto> chunk : chunks) {
+        if (chunk.isEmpty()) continue;
+        
+        CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+          // Nếu đã tìm thấy ở thread khác, dừng lại
+          if (foundCustomerRef.get() != null) {
+            return;
+          }
+          
+          for (UserConfigDto userConfig : chunk) {
+            // Nếu đã tìm thấy ở thread khác, dừng lại
+            if (foundCustomerRef.get() != null) {
+              break;
+            }
+            
+            String baseId = userConfig.getBaseId();
+            String khachHangTableId = userConfig.getKhachHangTableId();
+
+            if (baseId == null || baseId.isBlank() || khachHangTableId == null || khachHangTableId.isBlank()) {
+              continue;
+            }
+
+            try {
+              List<BitableRecord> customers = bitableService.searchCustomerByPhone(
+                  session, baseId, khachHangTableId, phoneNumber, KHACH_HANG_VIEW_ID);
+
+              if (customers != null && !customers.isEmpty()) {
+                // Chỉ set nếu chưa có thread nào set (atomic check-and-set)
+                if (foundCustomerRef.compareAndSet(null, customers.get(0))) {
+                  foundBaseIdRef.set(baseId);
+                  foundLichHenTableIdRef.set(userConfig.getLichHenTableId());
+                  foundTraoDoiTableIdRef.set(userConfig.getTraoDoiTableId());
+                  // Lấy tên CSKH từ mapping
+                  String cskhName = userConfig.getPosName();
+                  if (cskhName == null || cskhName.isBlank()) {
+                    cskhName = userConfig.getLarkName();
+                  }
+                  foundCskhNameRef.set(cskhName);
+                  log.info("✅ Found customer in baseId: {}, tableId: {}, CSKH: {}", baseId, khachHangTableId, cskhName);
+                  break; // Tìm thấy rồi, dừng thread này
+                }
+              }
+            } catch (Exception e) {
+              log.warn("Error searching customer in baseId {}: {}", baseId, e.getMessage());
+            }
+          }
+        }, executorService);
+        
+        futures.add(future);
+      }
+      
+      // Chờ tất cả các thread hoàn thành hoặc khi tìm thấy khách hàng
+      try {
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(60, TimeUnit.SECONDS);
+      } catch (TimeoutException e) {
+        log.warn("Timeout waiting for customer search threads");
+      } catch (Exception e) {
+        log.error("Error waiting for customer search threads: {}", e.getMessage(), e);
+      }
+      
+      // Lấy kết quả
+      BitableRecord foundCustomer = foundCustomerRef.get();
+      String foundBaseId = foundBaseIdRef.get();
+      String foundLichHenTableId = foundLichHenTableIdRef.get();
+      String foundTraoDoiTableId = foundTraoDoiTableIdRef.get();
+      String foundCskhName = foundCskhNameRef.get();
 
       if (foundCustomer == null) {
         response.put("error", "Không tìm thấy khách hàng với số điện thoại: " + phoneNumber);

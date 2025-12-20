@@ -271,6 +271,7 @@
           <input type="hidden" name="customerMonth" id="refreshCustomerMonth" />
           <button type="submit" class="refresh-btn">🔄 Làm Mới Dữ Liệu</button>
         </form>
+        <a href="#" id="exportStatsBtn" class="refresh-btn" style="background:#28a745; text-decoration:none; display:inline-block; padding:0.8rem 1.5rem; border-radius:4px; border:none; color:white; font-weight:500;">📥 Xuất Excel</a>
       </div>
     </div>
 
@@ -322,13 +323,27 @@
 </footer>
 
 <script>
+  // Biến dùng chung cho sort/filter ở trang stats
+  let statsRows = [];
+  let statsOriginalRows = [];
+
   document.addEventListener('DOMContentLoaded', function(){
     const table = document.querySelector('.stats-table');
     if(!table) return;
     const tbody = table.querySelector('tbody');
-    let rows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
-    const originalRows = rows.slice();
+    statsRows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
+    statsOriginalRows = statsRows.slice();
     const searchInput = document.getElementById('searchInput');
+    const currentMonthBtn = document.getElementById('currentMonthBtn');
+    const lastMonthBtn = document.getElementById('lastMonthBtn');
+    const exportStatsBtn = document.getElementById('exportStatsBtn');
+
+    // Dynamic month labels
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+    if (currentMonthBtn) currentMonthBtn.textContent = `📅 Tháng ${currentMonth}`;
+    if (lastMonthBtn) lastMonthBtn.textContent = `📆 Tháng ${lastMonth}`;
 
     const ths = Array.from(table.querySelectorAll('thead th'));
     ths.forEach((th, idx)=>{
@@ -364,7 +379,7 @@
     }
 
     function sortByColumn(idx, order){
-      const visible = rows.filter(r=> r.style.display !== 'none');
+      const visible = statsRows.filter(r=> r.style.display !== 'none');
       visible.sort((a,b)=>{
         const aV = parseCellValue((a.children[idx]||{}).textContent||'');
         const bV = parseCellValue((b.children[idx]||{}).textContent||'');
@@ -374,7 +389,7 @@
           return order==='asc' ? String(aV).localeCompare(String(bV)) : String(bV).localeCompare(String(aV));
         }
       });
-      const hidden = originalRows.filter(r=> r.style.display === 'none');
+      const hidden = statsOriginalRows.filter(r=> r.style.display === 'none');
       tbody.innerHTML = '';
       visible.forEach(r=> tbody.appendChild(r));
       hidden.forEach(r=> tbody.appendChild(r));
@@ -382,13 +397,13 @@
 
     function restoreOriginalOrder(){
       tbody.innerHTML = '';
-      originalRows.forEach(r=> tbody.appendChild(r));
-      rows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
+      statsOriginalRows.forEach(r=> tbody.appendChild(r));
+      statsRows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
     }
 
     function applyFilter(){
       const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
-      rows.forEach(r=>{
+      statsRows.forEach(r=>{
         const nameCell = r.children[1];
         const text = nameCell ? nameCell.textContent.toLowerCase() : '';
         r.style.display = q === '' || text.indexOf(q) !== -1 ? '' : 'none';
@@ -492,14 +507,28 @@
       setTimeout(() => {
         const tbody = document.querySelector('tbody');
         if (tbody) {
-          rows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.querySelectorAll('td').length > 0);
-          originalRows = rows.map(r => r.cloneNode(true));
+          statsRows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.querySelectorAll('td').length > 0);
+          statsOriginalRows = statsRows.map(r => r.cloneNode(true));
         }
       }, 100);
     } else {
       tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #666;">Không có dữ liệu thống kê. Vui lòng kiểm tra cấu hình tại <a href="/config">trang cấu hình</a>.</td></tr>';
     }
     
+    // Export button handler
+    if (exportStatsBtn) {
+      exportStatsBtn.onclick = (e) => {
+        e.preventDefault();
+        const exportUrl = `/stats/export?customerMonth=${encodeURIComponent(customerMonth)}`;
+        const link = document.createElement('a');
+        link.href = exportUrl;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+    }
+
   } catch (error) {
     loadingOverlay.classList.add('hidden');
     errorAlert.style.display = 'block';

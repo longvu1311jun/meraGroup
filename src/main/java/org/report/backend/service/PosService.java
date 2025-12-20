@@ -19,7 +19,8 @@ public class PosService {
   private static final Logger log = LoggerFactory.getLogger(PosService.class);
   private static final String POS_API_KEY = "2a6ed8b51a8d4ae49a851d5876b00018";
   private static final String POS_SHOP_ID = "1546758";
-  private static final String TARGET_DEPARTMENT = "CSKH";
+  private static final String TARGET_DEPARTMENT_1 = "CSKH";
+  private static final String TARGET_DEPARTMENT_2 = "NV CSKH";
   
   private final RestTemplate restTemplate;
   
@@ -28,7 +29,7 @@ public class PosService {
   }
   
   /**
-   * Get list of users from POS API, filtered by department name contains "CSKH" (case-insensitive)
+   * Get list of users from POS API, filtered by department name equals "CSKH" or "NV CSKH" (case-insensitive)
    */
   public List<PosUser> getUsers() {
     String url = String.format(
@@ -54,14 +55,14 @@ public class PosService {
         if (body != null) {
           List<PosUser> allUsers = body.getData();
           
-        // Filter users by department name contains "CSKH" (case-insensitive)
+        // Filter users by department name equals "CSKH" or "NV CSKH" (case-insensitive)
         return allUsers.stream()
             .filter(user -> {
               if (user.getDepartment() == null || user.getDepartment().getName() == null) {
                 return false;
               }
-              String deptName = user.getDepartment().getName().toUpperCase();
-              return deptName.contains(TARGET_DEPARTMENT);
+              String deptName = user.getDepartment().getName().trim().toUpperCase();
+              return deptName.equals(TARGET_DEPARTMENT_1) || deptName.equals(TARGET_DEPARTMENT_2);
             })
             .collect(Collectors.toList());
         }

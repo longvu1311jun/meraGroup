@@ -109,7 +109,7 @@ public class CustomerSearchController {
       AtomicReference<String> foundLichHenTableIdRef = new AtomicReference<>();
       AtomicReference<String> foundTraoDoiTableIdRef = new AtomicReference<>();
       AtomicReference<String> foundCskhNameRef = new AtomicReference<>();
-      
+
       // Tạo các CompletableFuture để chạy song song
       List<CompletableFuture<Void>> futures = new ArrayList<>();
       
@@ -119,6 +119,7 @@ public class CustomerSearchController {
         CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
           // Nếu đã tìm thấy ở thread khác, dừng lại
           if (foundCustomerRef.get() != null) {
+//            System.out.println(foundCustomerRef.toString());
             return;
           }
           
@@ -151,7 +152,7 @@ public class CustomerSearchController {
                     cskhName = userConfig.getLarkName();
                   }
                   foundCskhNameRef.set(cskhName);
-                  log.info("✅ Found customer in baseId: {}, tableId: {}, CSKH: {}", baseId, khachHangTableId, cskhName);
+//                  log.info("✅ Found customer in baseId: {}, tableId: {}, CSKH: {}", baseId, khachHangTableId, cskhName);
                   break; // Tìm thấy rồi, dừng thread này
                 }
               }
@@ -214,7 +215,7 @@ public class CustomerSearchController {
               item.put("content", extractFieldValue(r.getFields(), "Nội dung"));
               traoDoiList.add(item);
             }
-            log.info("✅ Loaded {} trao doi records", traoDoiList.size());
+//            log.info("✅ Loaded {} trao doi records", traoDoiList.size());
           } catch (Exception e) {
             log.warn("Error loading trao doi: {}", e.getMessage());
           }
@@ -238,7 +239,7 @@ public class CustomerSearchController {
               item.put("end", formatDate(extractFieldValue(r.getFields(), "Ngày Kết Thúc")));
               lichHenList.add(item);
             }
-            log.info("✅ Loaded {} lich hen records", lichHenList.size());
+//            log.info("✅ Loaded {} lich hen records", lichHenList.size());
           } catch (Exception e) {
             log.warn("Error loading lich hen: {}", e.getMessage());
           }
@@ -270,6 +271,7 @@ public class CustomerSearchController {
       customerData.put("phone", customerFields.get("Điện thoại"));
       customerData.put("address", customerFields.get("Địa chỉ"));
       customerData.put("note", customerFields.get("Tên Liệu Trình"));
+      customerData.put("benhNen", customerFields.get("Bệnh nền"));
       customerData.put("cskh", foundCskhName != null ? foundCskhName : "-");
       customersList.add(customerData);
 
@@ -476,6 +478,15 @@ public class CustomerSearchController {
       @SuppressWarnings("unchecked")
       List<Object> list = (List<Object>) tenLieuTrinh;
       fields.put("Tên Liệu Trình", String.join(", ", 
+          list.stream().map(Object::toString).toArray(String[]::new)));
+    }
+
+    // Format "Bệnh nền" - có thể là list
+    Object benhNen = fields.get("Bệnh nền");
+    if (benhNen instanceof List) {
+      @SuppressWarnings("unchecked")
+      List<Object> list = (List<Object>) benhNen;
+      fields.put("Bệnh nền", String.join(", ", 
           list.stream().map(Object::toString).toArray(String[]::new)));
     }
   }

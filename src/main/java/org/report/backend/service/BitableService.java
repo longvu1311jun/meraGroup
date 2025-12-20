@@ -165,7 +165,16 @@ public class BitableService {
       
       RecordSearchRequest bodyReq = new RecordSearchRequest();
       bodyReq.automaticFields = false;
-      bodyReq.fieldNames = List.of("Điện thoại", "Tên khách hàng", "Mã KH", "Tuổi", "Địa chỉ", "Link", "Tên Liệu Trình");
+      bodyReq.fieldNames = List.of(
+          "Điện thoại",
+          "Tên khách hàng",
+          "Mã KH",
+          "Tuổi",
+          "Địa chỉ",
+          "Link",
+          "Tên Liệu Trình",
+          "Bệnh nền"
+      );
       if (viewId != null && !viewId.isBlank()) {
         bodyReq.viewId = viewId;
       }

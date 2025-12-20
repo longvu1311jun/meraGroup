@@ -309,12 +309,16 @@
 </div>
 
 <script>
+// Dùng chung cho sort/filter, được cập nhật sau khi load data
+let saleRows = [];
+let saleOriginalRows = [];
+
 document.addEventListener('DOMContentLoaded', function(){
   const table = document.querySelector('.table-card table');
   if(!table) return;
   const tbody = table.querySelector('tbody');
-  let rows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
-  const originalRows = rows.slice();
+  saleRows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
+  saleOriginalRows = saleRows.slice();
   const searchInput = document.getElementById('searchInput');
   const optCurrentMonth = document.getElementById('optCurrentMonth');
   const optLastMonth = document.getElementById('optLastMonth');
@@ -362,7 +366,7 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   function sortByColumn(idx, order){
-    const visible = rows.filter(r=> r.style.display !== 'none');
+    const visible = saleRows.filter(r=> r.style.display !== 'none');
     visible.sort((a,b)=>{
       const aV = parseCellValue((a.children[idx]||{}).textContent||'');
       const bV = parseCellValue((b.children[idx]||{}).textContent||'');
@@ -372,7 +376,7 @@ document.addEventListener('DOMContentLoaded', function(){
         return order==='asc' ? String(aV).localeCompare(String(bV)) : String(bV).localeCompare(String(aV));
       }
     });
-    const hidden = originalRows.filter(r=> r.style.display === 'none');
+    const hidden = saleOriginalRows.filter(r=> r.style.display === 'none');
     tbody.innerHTML = '';
     visible.forEach(r=> tbody.appendChild(r));
     hidden.forEach(r=> tbody.appendChild(r));
@@ -380,13 +384,13 @@ document.addEventListener('DOMContentLoaded', function(){
 
   function restoreOriginalOrder(){
     tbody.innerHTML = '';
-    originalRows.forEach(r=> tbody.appendChild(r));
-    rows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
+    saleOriginalRows.forEach(r=> tbody.appendChild(r));
+    saleRows = Array.from(tbody.querySelectorAll('tr')).filter(r=> r.querySelectorAll('td').length>0);
   }
 
   function applyFilter(){
     const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
-    rows.forEach(r=>{
+    saleRows.forEach(r=>{
       const nameCell = r.children[1];
       const text = nameCell ? nameCell.textContent.toLowerCase() : '';
       r.style.display = q === '' || text.indexOf(q) !== -1 ? '' : 'none';
@@ -489,8 +493,8 @@ document.addEventListener('DOMContentLoaded', function(){
       setTimeout(() => {
         const tbody = document.querySelector('tbody');
         if (tbody) {
-          rows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.querySelectorAll('td').length > 0);
-          originalRows = rows.map(r => r.cloneNode(true));
+          saleRows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.querySelectorAll('td').length > 0);
+          saleOriginalRows = saleRows.map(r => r.cloneNode(true));
         }
       }, 100);
     } else {

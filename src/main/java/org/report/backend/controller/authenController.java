@@ -15,6 +15,22 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import jakarta.annotation.PreDestroy;
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import java.text.SimpleDateFormat;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import jakarta.servlet.http.HttpSession;
 import org.report.backend.model.BitableTable;
 import org.report.backend.model.BitableRecord;
@@ -134,6 +150,9 @@ public class authenController {
   private static final String SESSION_SALE_TABLES = "SESSION_SALE_TABLES";
   private static final String SESSION_EMPLOYEE_STATS = "SESSION_EMPLOYEE_STATS";
   private static final String SESSION_EMPLOYEE_STATS_FETCHED_AT = "SESSION_EMPLOYEE_STATS_FETCHED_AT";
+  // Cache riêng cho LastMonth để khi người dùng chuyển qua lại không phải load lại
+  private static final String SESSION_EMPLOYEE_STATS_LAST = "SESSION_EMPLOYEE_STATS_LAST";
+  private static final String SESSION_EMPLOYEE_STATS_LAST_FETCHED_AT = "SESSION_EMPLOYEE_STATS_LAST_FETCHED_AT";
 
   @GetMapping("/config")
   public String config(Model model, HttpSession session) {
@@ -318,30 +337,46 @@ public class authenController {
         customerMonth = "CurrentMonth";
       }
 
-      // 1) ✅ Kiểm tra cache trong session (cache luôn dùng CurrentMonth)
+      // 1) ✅ Kiểm tra cache trong session cho cả CurrentMonth và LastMonth
       @SuppressWarnings("unchecked")
-      List<EmployeeStatsDto> cachedStats = (List<EmployeeStatsDto>) session.getAttribute(SESSION_EMPLOYEE_STATS);
-      LocalDateTime fetchedAt = (LocalDateTime) session.getAttribute(SESSION_EMPLOYEE_STATS_FETCHED_AT);
+      List<EmployeeStatsDto> cachedStatsCurrent =
+          (List<EmployeeStatsDto>) session.getAttribute(SESSION_EMPLOYEE_STATS);
+      LocalDateTime fetchedAtCurrent =
+          (LocalDateTime) session.getAttribute(SESSION_EMPLOYEE_STATS_FETCHED_AT);
 
-      // Nếu chọn CurrentMonth và có cache, dùng cache
-      if (customerMonth.equals("CurrentMonth") && cachedStats != null && fetchedAt != null) {
-        log.info("Using cached employee stats from session");
-        response.put("statsList", cachedStats);
-        response.put("fetchedAt", fetchedAt.toString());
+      @SuppressWarnings("unchecked")
+      List<EmployeeStatsDto> cachedStatsLast =
+          (List<EmployeeStatsDto>) session.getAttribute(SESSION_EMPLOYEE_STATS_LAST);
+      LocalDateTime fetchedAtLast =
+          (LocalDateTime) session.getAttribute(SESSION_EMPLOYEE_STATS_LAST_FETCHED_AT);
+
+      List<EmployeeStatsDto> cachedStatsToUse = null;
+      LocalDateTime fetchedAtToUse = null;
+      if (customerMonth.equals("CurrentMonth")) {
+        cachedStatsToUse = cachedStatsCurrent;
+        fetchedAtToUse = fetchedAtCurrent;
+      } else if (customerMonth.equals("LastMonth")) {
+        cachedStatsToUse = cachedStatsLast;
+        fetchedAtToUse = fetchedAtLast;
+      }
+
+      if (cachedStatsToUse != null && fetchedAtToUse != null) {
+        log.info("Using cached employee stats from session for {}", customerMonth);
+        response.put("statsList", cachedStatsToUse);
+        response.put("fetchedAt", fetchedAtToUse.toString());
         response.put("fromCache", true);
         response.put("customerMonth", customerMonth);
-        
-        // Tính tổng từ cache
-        long totalKhach = cachedStats.stream().mapToLong(EmployeeStatsDto::getTongKhach).sum();
-        long totalLich = cachedStats.stream().mapToLong(EmployeeStatsDto::getTongLich).sum();
-        long totalHoanThanh = cachedStats.stream().mapToLong(EmployeeStatsDto::getHoanThanh).sum();
+
+        long totalKhach = cachedStatsToUse.stream().mapToLong(EmployeeStatsDto::getTongKhach).sum();
+        long totalLich = cachedStatsToUse.stream().mapToLong(EmployeeStatsDto::getTongLich).sum();
+        long totalHoanThanh = cachedStatsToUse.stream().mapToLong(EmployeeStatsDto::getHoanThanh).sum();
         response.put("totalKhach", totalKhach);
         response.put("totalLich", totalLich);
         response.put("totalHoanThanh", totalHoanThanh);
         return ResponseEntity.ok(response);
       }
 
-      // 2) ❌ Cache miss hoặc chọn LastMonth -> Lấy dữ liệu mới
+      // 2) ❌ Cache miss -> Lấy dữ liệu mới
       @SuppressWarnings("unchecked")
       List<UserConfigDto> cachedUserConfigs =
           (List<UserConfigDto>) session.getAttribute(SESSION_USER_CONFIGS);
@@ -356,21 +391,18 @@ public class authenController {
       // Tính toán stats với customerMonth được chọn
       List<EmployeeStatsDto> statsList = calculateEmployeeStats(session, cachedUserConfigs, customerMonth);
       
-      // Chỉ lưu vào cache nếu là CurrentMonth
+      // Lưu vào cache theo từng tháng
+      long nowMs = Instant.now().toEpochMilli();
+      LocalDateTime nowDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault());
       if (customerMonth.equals("CurrentMonth")) {
-        long nowMs = Instant.now().toEpochMilli();
-        LocalDateTime nowDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault());
         session.setAttribute(SESSION_EMPLOYEE_STATS, statsList);
         session.setAttribute(SESSION_EMPLOYEE_STATS_FETCHED_AT, nowDt);
-        response.put("fetchedAt", nowDt.toString());
-        response.put("fromCache", false);
       } else {
-        // LastMonth không cache, chỉ hiển thị
-        long nowMs = Instant.now().toEpochMilli();
-        LocalDateTime nowDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault());
-        response.put("fetchedAt", nowDt.toString());
-        response.put("fromCache", false);
+        session.setAttribute(SESSION_EMPLOYEE_STATS_LAST, statsList);
+        session.setAttribute(SESSION_EMPLOYEE_STATS_LAST_FETCHED_AT, nowDt);
       }
+      response.put("fetchedAt", nowDt.toString());
+      response.put("fromCache", false);
       
       response.put("statsList", statsList);
       response.put("customerMonth", customerMonth);
@@ -407,6 +439,8 @@ public class authenController {
       // Xóa cache
       session.removeAttribute(SESSION_EMPLOYEE_STATS);
       session.removeAttribute(SESSION_EMPLOYEE_STATS_FETCHED_AT);
+      session.removeAttribute(SESSION_EMPLOYEE_STATS_LAST);
+      session.removeAttribute(SESSION_EMPLOYEE_STATS_LAST_FETCHED_AT);
       
       redirectAttributes.addFlashAttribute("success", "Đã làm mới dữ liệu thống kê thành công!");
     } catch (Exception e) {
@@ -415,6 +449,177 @@ public class authenController {
     }
 
     return "redirect:/stats?customerMonth=" + customerMonth;
+  }
+
+  @GetMapping("/stats/export")
+  public ResponseEntity<byte[]> exportStatsToExcel(
+      @RequestParam(value = "customerMonth", required = false, defaultValue = "CurrentMonth") String customerMonth,
+      HttpSession session) throws IOException {
+
+    if (!tokenService.hasToken(session)) {
+      return ResponseEntity.badRequest().build();
+    }
+
+    try {
+      tokenService.autoRefreshTokenIfNeeded(session);
+
+      // Validate customerMonth parameter
+      if (!customerMonth.equals("CurrentMonth") && !customerMonth.equals("LastMonth")) {
+        customerMonth = "CurrentMonth";
+      }
+
+      // Lấy stats từ cache nếu có (cho cả CurrentMonth và LastMonth)
+      @SuppressWarnings("unchecked")
+      List<EmployeeStatsDto> cachedStatsCurrent =
+          (List<EmployeeStatsDto>) session.getAttribute(SESSION_EMPLOYEE_STATS);
+      @SuppressWarnings("unchecked")
+      List<EmployeeStatsDto> cachedStatsLast =
+          (List<EmployeeStatsDto>) session.getAttribute(SESSION_EMPLOYEE_STATS_LAST);
+
+      List<EmployeeStatsDto> statsList = null;
+      if (customerMonth.equals("CurrentMonth") && cachedStatsCurrent != null) {
+        statsList = cachedStatsCurrent;
+      } else if (customerMonth.equals("LastMonth") && cachedStatsLast != null) {
+        statsList = cachedStatsLast;
+      } else {
+        // Nếu không có cache, tính lại và lưu cache như getStatsData
+        @SuppressWarnings("unchecked")
+        List<UserConfigDto> cachedUserConfigs =
+            (List<UserConfigDto>) session.getAttribute(SESSION_USER_CONFIGS);
+        if (cachedUserConfigs == null) {
+          Model tempModel = new org.springframework.ui.ExtendedModelMap();
+          loadAndCacheData(session, tempModel);
+          cachedUserConfigs = (List<UserConfigDto>) session.getAttribute(SESSION_USER_CONFIGS);
+        }
+        statsList = calculateEmployeeStats(session, cachedUserConfigs, customerMonth);
+
+        long nowMs = Instant.now().toEpochMilli();
+        LocalDateTime nowDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(nowMs), ZoneId.systemDefault());
+        if (customerMonth.equals("CurrentMonth")) {
+          session.setAttribute(SESSION_EMPLOYEE_STATS, statsList);
+          session.setAttribute(SESSION_EMPLOYEE_STATS_FETCHED_AT, nowDt);
+        } else {
+          session.setAttribute(SESSION_EMPLOYEE_STATS_LAST, statsList);
+          session.setAttribute(SESSION_EMPLOYEE_STATS_LAST_FETCHED_AT, nowDt);
+        }
+      }
+
+      if (statsList == null || statsList.isEmpty()) {
+        return ResponseEntity.badRequest().build();
+      }
+
+      // Xác định tháng hiển thị
+      LocalDateTime nowDtLabel = LocalDateTime.now(ZoneId.systemDefault());
+      int currentMonthNum = nowDtLabel.getMonthValue();
+      int targetMonthNum = "CurrentMonth".equals(customerMonth)
+          ? currentMonthNum
+          : (currentMonthNum == 1 ? 12 : currentMonthNum - 1);
+      String monthLabel = "Tháng " + targetMonthNum;
+
+      // Tạo Excel
+      Workbook workbook = new XSSFWorkbook();
+      Sheet sheet = workbook.createSheet("Stats");
+
+      // Style title
+      CellStyle titleStyle = workbook.createCellStyle();
+      Font titleFont = workbook.createFont();
+      titleFont.setBold(true);
+      titleFont.setFontHeightInPoints((short) 14);
+      titleStyle.setFont(titleFont);
+      titleStyle.setAlignment(HorizontalAlignment.CENTER);
+
+      // Header style
+      CellStyle headerStyle = workbook.createCellStyle();
+      Font headerFont = workbook.createFont();
+      headerFont.setBold(true);
+      headerFont.setFontHeightInPoints((short) 12);
+      headerStyle.setFont(headerFont);
+      headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+      headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+      headerStyle.setBorderBottom(BorderStyle.THIN);
+      headerStyle.setBorderTop(BorderStyle.THIN);
+      headerStyle.setBorderLeft(BorderStyle.THIN);
+      headerStyle.setBorderRight(BorderStyle.THIN);
+      headerStyle.setAlignment(HorizontalAlignment.CENTER);
+
+      // Number style
+      CellStyle numberStyle = workbook.createCellStyle();
+      numberStyle.setDataFormat(workbook.getCreationHelper().createDataFormat().getFormat("#,##0"));
+
+      // Title
+      Row titleRow = sheet.createRow(0);
+      Cell titleCell = titleRow.createCell(0);
+      titleCell.setCellValue("Thống kê lịch hẹn CSKH " + monthLabel);
+      titleCell.setCellStyle(titleStyle);
+      sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 6));
+
+      // Header
+      Row headerRow = sheet.createRow(2);
+      String[] headers = {
+          "STT", "Tên Nhân Viên", "Tổng Khách", "Tổng Lịch", "Hoàn Thành Muộn", "Hoàn Thành", "Quá Hạn"
+      };
+      for (int i = 0; i < headers.length; i++) {
+        Cell cell = headerRow.createCell(i);
+        cell.setCellValue(headers[i]);
+        cell.setCellStyle(headerStyle);
+      }
+
+      // Data
+      int rowNum = 3;
+      int stt = 1;
+      for (EmployeeStatsDto stat : statsList) {
+        Row dataRow = sheet.createRow(rowNum++);
+        int col = 0;
+        dataRow.createCell(col++).setCellValue(stt++);
+        dataRow.createCell(col++).setCellValue(stat.getEmployeeName() != null ? stat.getEmployeeName() : "");
+
+        Cell tongKhachCell = dataRow.createCell(col++);
+        tongKhachCell.setCellValue(stat.getTongKhach());
+        tongKhachCell.setCellStyle(numberStyle);
+
+        Cell tongLichCell = dataRow.createCell(col++);
+        tongLichCell.setCellValue(stat.getTongLich());
+        tongLichCell.setCellStyle(numberStyle);
+
+        Cell hoanThanhMuonCell = dataRow.createCell(col++);
+        hoanThanhMuonCell.setCellValue(stat.getHoanThanhMuon());
+        hoanThanhMuonCell.setCellStyle(numberStyle);
+
+        Cell hoanThanhCell = dataRow.createCell(col++);
+        hoanThanhCell.setCellValue(stat.getHoanThanh());
+        hoanThanhCell.setCellStyle(numberStyle);
+
+        Cell quaHanCell = dataRow.createCell(col++);
+        quaHanCell.setCellValue(stat.getQuaHan());
+        quaHanCell.setCellStyle(numberStyle);
+      }
+
+      // Auto-size columns
+      for (int i = 0; i < headers.length; i++) {
+        sheet.autoSizeColumn(i);
+        sheet.setColumnWidth(i, sheet.getColumnWidth(i) + 800);
+      }
+
+      // Filename
+      SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss");
+      String fileName = "report_CSKH_" + monthLabel.replace(" ", "_") + "_" + dateFormat.format(new java.util.Date()) + ".xlsx";
+
+      ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+      workbook.write(outputStream);
+      workbook.close();
+
+      HttpHeaders responseHeaders = new HttpHeaders();
+      responseHeaders.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+      responseHeaders.setContentDispositionFormData("attachment", fileName);
+
+      return ResponseEntity.ok()
+          .headers(responseHeaders)
+          .body(outputStream.toByteArray());
+
+    } catch (Exception e) {
+      log.error("Error exporting stats Excel: {}", e.getMessage(), e);
+      return ResponseEntity.internalServerError().build();
+    }
   }
 
   private List<EmployeeStatsDto> calculateEmployeeStats(HttpSession session,

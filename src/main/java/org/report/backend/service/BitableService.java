@@ -23,6 +23,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -37,6 +38,9 @@ public class BitableService {
   // Bitable app/token đích cho bảng "Từ chối chăm"
   private static final String TU_CHOI_CHAM_APP_TOKEN = "Fah8bsKwQan10vsg9Q1l5LOhgsg";
   private static final String TU_CHOI_CHAM_TABLE_ID = "tblsiLRl6QUcbG8V";
+  // Bitable app/token + table cho trạng thái "Đang chăm"
+  private static final String DANG_CHAM_APP_TOKEN = "A9EeblIYZafN5Ys0aiNl9Phxggh";
+  private static final String DANG_CHAM_TABLE_ID = "tblfjNnW3AoRzKUg";
 
   private static final int DEFAULT_TABLE_PAGE_SIZE = 50;
   private static final int DEFAULT_RECORD_PAGE_SIZE = 500;
@@ -231,6 +235,22 @@ public class BitableService {
    */
   public List<BitableRecord> searchRejectedCareCustomers(HttpSession session, String baseId, String tableId,
       String viewId) throws Exception {
+    return searchCareCustomersByKeyword(session, baseId, tableId, viewId, "Từ chối chăm");
+  }
+
+  /**
+   * Tìm khách hàng có "Tên Liệu Trình" chứa "Đang chăm".
+   */
+  public List<BitableRecord> searchDangChamCustomers(HttpSession session, String baseId, String tableId,
+      String viewId) throws Exception {
+    return searchCareCustomersByKeyword(session, baseId, tableId, viewId, "Đang chăm");
+  }
+
+  /**
+   * Tìm khách hàng theo từ khóa trong "Tên Liệu Trình".
+   */
+  private List<BitableRecord> searchCareCustomersByKeyword(HttpSession session, String baseId, String tableId,
+      String viewId, String keyword) throws Exception {
     if (baseId == null || baseId.isBlank() || tableId == null || tableId.isBlank()) {
       return new ArrayList<>();
     }
@@ -271,7 +291,7 @@ public class BitableService {
       Condition c = new Condition();
       c.fieldName = "Tên Liệu Trình";
       c.operator = "contains";
-      c.value = List.of("Từ chối chăm");
+      c.value = List.of(keyword);
 
       Filter f = new Filter();
       f.conjunction = "and";
@@ -319,18 +339,29 @@ public class BitableService {
    * Nếu đã tồn tại thì trả về true, để bỏ qua không insert trùng.
    */
   public boolean existsRejectedCareByPhone(HttpSession session, String phoneNumber) throws Exception {
+    return existsCareByPhone(session, phoneNumber, TU_CHOI_CHAM_TABLE_ID, false);
+  }
+
+  /**
+   * Kiểm tra trong bảng "Đang chăm" đích đã tồn tại bản ghi với số điện thoại này chưa.
+   */
+  public boolean existsDangChamByPhone(HttpSession session, String phoneNumber) throws Exception {
+    return existsCareByPhone(session, phoneNumber, DANG_CHAM_TABLE_ID, false);
+  }
+
+  private boolean existsCareByPhone(HttpSession session, String phoneNumber, String targetTableId, boolean isRetry) throws Exception {
     if (phoneNumber == null || phoneNumber.isBlank()) {
       return false;
     }
 
-    String accessToken = tokenService.getAccessToken(session, false);
+    String accessToken = tokenService.getAccessToken(session, isRetry); // Nếu là retry thì force refresh
 
     HttpHeaders headers = new HttpHeaders();
     headers.setBearerAuth(accessToken);
     headers.setContentType(MediaType.APPLICATION_JSON);
     headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
 
-    String url = buildSearchRecordsUrl(TU_CHOI_CHAM_APP_TOKEN, TU_CHOI_CHAM_TABLE_ID, 1, null);
+    String url = buildSearchRecordsUrl(resolveAppTokenForTarget(targetTableId), targetTableId, 1, null);
 
     RecordSearchRequest bodyReq = new RecordSearchRequest();
     bodyReq.automaticFields = false;
@@ -352,17 +383,35 @@ public class BitableService {
     ResponseEntity<RecordSearchResponse> response;
     try {
       response = restTemplate.exchange(url, HttpMethod.POST, entity, RecordSearchResponse.class);
+    } catch (HttpClientErrorException e) {
+      if (!isRetry && (e.getStatusCode() == HttpStatus.BAD_REQUEST || e.getStatusCode() == HttpStatus.UNAUTHORIZED)) {
+        String responseBody = e.getResponseBodyAsString();
+        if (responseBody != null && (responseBody.contains("Invalid access token") || responseBody.contains("99991668"))) {
+          log.warn("Token expired in existsCareByPhone, refreshing and retrying...");
+          return existsCareByPhone(session, phoneNumber, targetTableId, true);
+        }
+      }
+      log.error("Error calling Bitable existsRejectedCareByPhone API: {}", e.getMessage(), e);
+      throw new RuntimeException("Failed to call Bitable existsRejectedCareByPhone API: " + e.getMessage(), e);
     } catch (RestClientException e) {
       log.error("Error calling Bitable existsRejectedCareByPhone API: {}", e.getMessage(), e);
       throw new RuntimeException("Failed to call Bitable existsRejectedCareByPhone API: " + e.getMessage(), e);
     }
 
     if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+      if (!isRetry && (response.getStatusCode() == HttpStatus.BAD_REQUEST || response.getStatusCode() == HttpStatus.UNAUTHORIZED)) {
+        log.warn("Token expired in existsCareByPhone (status check), refreshing and retrying...");
+        return existsCareByPhone(session, phoneNumber, targetTableId, true);
+      }
       throw new RuntimeException("Bitable HTTP error: " + response.getStatusCode());
     }
 
     RecordSearchResponse body = response.getBody();
     if (body.code != 0) {
+      if (!isRetry && (body.code == 99991668 || (body.msg != null && body.msg.contains("Invalid access token")))) {
+        log.warn("Token expired in existsCareByPhone (code check), refreshing and retrying...");
+        return existsCareByPhone(session, phoneNumber, targetTableId, true);
+      }
       throw new RuntimeException("Bitable error: " + body.code + " - " + body.msg);
     }
 
@@ -624,7 +673,22 @@ public class BitableService {
       return;
     }
 
-    String accessToken = tokenService.getAccessToken(session, false);
+    createCareRecordWithRetry(session, fields, TU_CHOI_CHAM_TABLE_ID, false);
+  }
+
+  /**
+   * Tạo bản ghi mới trong bảng "Đang chăm".
+   */
+  public void createDangChamRecord(HttpSession session, Map<String, Object> fields) throws Exception {
+    if (fields == null || fields.isEmpty()) {
+      return;
+    }
+
+    createCareRecordWithRetry(session, fields, DANG_CHAM_TABLE_ID, false);
+  }
+
+  private void createCareRecordWithRetry(HttpSession session, Map<String, Object> fields, String targetTableId, boolean isRetry) throws Exception {
+    String accessToken = tokenService.getAccessToken(session, isRetry); // Nếu là retry thì force refresh
 
     HttpHeaders headers = new HttpHeaders();
     headers.setBearerAuth(accessToken);
@@ -634,7 +698,7 @@ public class BitableService {
     Map<String, Object> body = new HashMap<>();
     body.put("fields", fields);
 
-    String url = buildCreateRecordUrl(TU_CHOI_CHAM_APP_TOKEN, TU_CHOI_CHAM_TABLE_ID);
+    String url = buildCreateRecordUrl(resolveAppTokenForTarget(targetTableId), targetTableId);
 
     // In ra curl tương đương để debug
     try {
@@ -654,17 +718,38 @@ public class BitableService {
     ResponseEntity<CreateRecordResponse> response;
     try {
       response = restTemplate.exchange(url, HttpMethod.POST, entity, CreateRecordResponse.class);
+    } catch (HttpClientErrorException e) {
+      if (!isRetry && (e.getStatusCode() == HttpStatus.BAD_REQUEST || e.getStatusCode() == HttpStatus.UNAUTHORIZED)) {
+        String responseBody = e.getResponseBodyAsString();
+        if (responseBody != null && (responseBody.contains("Invalid access token") || responseBody.contains("99991668"))) {
+          log.warn("Token expired in createCareRecord, refreshing and retrying...");
+          createCareRecordWithRetry(session, fields, targetTableId, true);
+          return;
+        }
+      }
+      log.error("Error calling Bitable create rejected care record API: {}", e.getMessage(), e);
+      throw new RuntimeException("Failed to call Bitable create rejected care record API: " + e.getMessage(), e);
     } catch (RestClientException e) {
       log.error("Error calling Bitable create rejected care record API: {}", e.getMessage(), e);
       throw new RuntimeException("Failed to call Bitable create rejected care record API: " + e.getMessage(), e);
     }
 
     if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+      if (!isRetry && (response.getStatusCode() == HttpStatus.BAD_REQUEST || response.getStatusCode() == HttpStatus.UNAUTHORIZED)) {
+        log.warn("Token expired in createCareRecord (status check), refreshing and retrying...");
+        createCareRecordWithRetry(session, fields, targetTableId, true);
+        return;
+      }
       throw new RuntimeException("Bitable HTTP error when creating record: " + response.getStatusCode());
     }
 
     CreateRecordResponse bodyRes = response.getBody();
     if (bodyRes.code != 0) {
+      if (!isRetry && (bodyRes.code == 99991668 || (bodyRes.msg != null && bodyRes.msg.contains("Invalid access token")))) {
+        log.warn("Token expired in createCareRecord (code check), refreshing and retrying...");
+        createCareRecordWithRetry(session, fields, targetTableId, true);
+        return;
+      }
       throw new RuntimeException("Bitable error when creating record: " + bodyRes.code + " - " + bodyRes.msg);
     }
   }
@@ -694,6 +779,13 @@ public class BitableService {
   private String buildCreateRecordUrl(String appToken, String tableId) {
     return "https://open.larksuite.com/open-apis/bitable/v1/apps/" + appToken
         + "/tables/" + tableId + "/records";
+  }
+
+  private String resolveAppTokenForTarget(String tableId) {
+    if (tableId != null && tableId.equals(DANG_CHAM_TABLE_ID)) {
+      return DANG_CHAM_APP_TOKEN;
+    }
+    return TU_CHOI_CHAM_APP_TOKEN;
   }
 
   private static class RecordSearchResponse {

@@ -599,8 +599,6 @@ public class CustomerSearchController {
         }
 
         totalBases++;
-        log.info("🔎 Sync 'Từ chối chăm' for baseId={}, tableId={}", baseId, khachHangTableId);
-
         List<BitableRecord> records = bitableService.searchRejectedCareCustomers(
             session, baseId, khachHangTableId, KHACH_HANG_VIEW_ID);
 
@@ -618,9 +616,9 @@ public class CustomerSearchController {
           Object rawPhone = srcFields.get("Điện thoại");
           String phoneStr = (rawPhone != null) ? rawPhone.toString().trim() : "";
           if (!phoneStr.isEmpty()) {
+            log.info("Check 'Từ chối chăm' phone={} baseId={} tableId={}", phoneStr, baseId, khachHangTableId);
             boolean exists = bitableService.existsRejectedCareByPhone(session, phoneStr);
             if (exists) {
-              log.info("⏭️  Skip 'Từ chối chăm' for phone={} because it already exists in target table", phoneStr);
               continue;
             }
           }
@@ -655,7 +653,7 @@ public class CustomerSearchController {
             bitableService.createRejectedCareRecord(session, destFields);
             totalInserted++;
             insertedPhones.add(phoneStr);
-            log.info("✅ Inserted 'Từ chối chăm' record for phone: {}", phoneStr);
+            log.info("Inserted 'Từ chối chăm' phone={}", phoneStr);
           } catch (Exception ex) {
             totalFailed++;
             log.error("❌ Failed to insert 'Từ chối chăm' record for phone {}: {}", phoneStr, ex.getMessage());
@@ -686,6 +684,130 @@ public class CustomerSearchController {
   @ResponseBody
   public ResponseEntity<Map<String, Object>> updateTuChoiCham(HttpSession session) {
     return syncTuChoiCham(session);
+  }
+
+  /**
+   * API nội bộ: đồng bộ khách hàng có "Tên Liệu Trình" chứa "Đang chăm"
+   * sang bảng đích tương ứng.
+   *
+   * Shortcut: /updateDangCham
+   */
+  @GetMapping("/api/sync_dang_cham")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> syncDangCham(HttpSession session) {
+    Map<String, Object> result = new HashMap<>();
+
+    if (!tokenService.hasToken(session)) {
+      result.put("error", "Vui lòng đăng nhập trước");
+      return ResponseEntity.ok(result);
+    }
+
+    try {
+      tokenService.autoRefreshTokenIfNeeded(session);
+
+      @SuppressWarnings("unchecked")
+      List<UserConfigDto> userConfigs =
+          (List<UserConfigDto>) session.getAttribute(SESSION_USER_CONFIGS);
+
+      if (userConfigs == null || userConfigs.isEmpty()) {
+        result.put("error",
+            "Chưa có dữ liệu cấu hình. Vui lòng vào trang /config để load dữ liệu trước.");
+        return ResponseEntity.ok(result);
+      }
+
+      int totalBases = 0;
+      int totalFound = 0;
+      int totalInserted = 0;
+      int totalFailed = 0;
+
+      List<String> insertedPhones = new ArrayList<>();
+
+      for (UserConfigDto userConfig : userConfigs) {
+        String baseId = userConfig.getBaseId();
+        String khachHangTableId = userConfig.getKhachHangTableId();
+
+        if (baseId == null || baseId.isBlank() || khachHangTableId == null
+            || khachHangTableId.isBlank()) {
+          continue;
+        }
+
+        totalBases++;
+        List<BitableRecord> records = bitableService.searchDangChamCustomers(
+            session, baseId, khachHangTableId, KHACH_HANG_VIEW_ID);
+
+        if (records == null || records.isEmpty()) {
+          continue;
+        }
+
+        totalFound += records.size();
+
+        for (BitableRecord r : records) {
+          Map<String, Object> srcFields = r.getFields();
+          if (srcFields == null) continue;
+
+          Object rawPhone = srcFields.get("Điện thoại");
+          String phoneStr = (rawPhone != null) ? rawPhone.toString().trim() : "";
+          if (!phoneStr.isEmpty()) {
+            log.info("Check 'Đang chăm' phone={} baseId={} tableId={}", phoneStr, baseId, khachHangTableId);
+            boolean exists = bitableService.existsDangChamByPhone(session, phoneStr);
+            if (exists) {
+              continue;
+            }
+          }
+
+          Map<String, Object> destFields = new HashMap<>();
+          destFields.put("Mã KH", srcFields.get("Mã KH"));
+          destFields.put("Tên khách hàng", extractPlainText(srcFields.get("Tên khách hàng")));
+          destFields.put("Địa chỉ", extractPlainText(srcFields.get("Địa chỉ")));
+          destFields.put("Tỉnh/Thành phố", srcFields.get("Tỉnh/Thành phố"));
+          destFields.put("Điện thoại", srcFields.get("Điện thoại"));
+          destFields.put("Tên Liệu Trình", srcFields.get("Tên Liệu Trình"));
+          destFields.put("Link", normalizeLinkField(srcFields.get("Link")));
+          destFields.put("Tuổi", srcFields.get("Tuổi"));
+          destFields.put("Bệnh nền", srcFields.get("Bệnh nền"));
+
+          Object ngayTao = srcFields.get("Ngày tạo");
+          if (ngayTao == null) {
+            ngayTao = System.currentTimeMillis();
+          }
+          destFields.put("Ngày tạo", ngayTao);
+
+          Object nguoiCskhField = srcFields.get("Người CSKH");
+          if (nguoiCskhField != null) {
+            destFields.put("Người CSKH", nguoiCskhField);
+          }
+
+          try {
+            bitableService.createDangChamRecord(session, destFields);
+            totalInserted++;
+            insertedPhones.add(phoneStr);
+            log.info("Inserted 'Đang chăm' phone={}", phoneStr);
+          } catch (Exception ex) {
+            totalFailed++;
+            log.error("❌ Failed to insert 'Đang chăm' record for phone {}: {}", phoneStr, ex.getMessage());
+          }
+        }
+      }
+
+      result.put("message", "Đã đồng bộ xong 'Đang chăm'");
+      result.put("totalBases", totalBases);
+      result.put("totalFound", totalFound);
+      result.put("totalInserted", totalInserted);
+      result.put("totalFailed", totalFailed);
+      result.put("phones", insertedPhones);
+
+    } catch (Exception e) {
+      log.error("Error when syncing 'Đang chăm': {}", e.getMessage(), e);
+      result.put("error", "Lỗi khi đồng bộ 'Đang chăm': " + e.getMessage());
+    }
+
+    return ResponseEntity.ok(result);
+  }
+
+  @GetMapping("/updateDangCham")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> updateDangCham(HttpSession session) {
+    return syncDangCham(session);
   }
 
   @PreDestroy

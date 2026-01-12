@@ -13,21 +13,22 @@ public class WebConfig implements WebMvcConfigurer {
 
   @Override
   public void addInterceptors(InterceptorRegistry registry) {
-    registry.addInterceptor(passwordInterceptor)
-        .addPathPatterns("/**")
-        .excludePathPatterns(
-            "/saleReport/**",
-            "/stats/**",
-            "/oauth/callback",
-            "/password",
-            "/password/verify",
-            "/error",
-            "/favicon.ico",
-            "/css/**",
-            "/js/**",
-            "/images/**",
-            "/static/**"
-        );
+    // Password interceptor disabled - no password requirement
+    // registry.addInterceptor(passwordInterceptor)
+    //     .addPathPatterns("/**")
+    //     .excludePathPatterns(
+    //         "/saleReport/**",
+    //         "/stats/**",
+    //         "/oauth/callback",
+    //         "/password",
+    //         "/password/verify",
+    //         "/error",
+    //         "/favicon.ico",
+    //         "/css/**",
+    //         "/js/**",
+    //         "/images/**",
+    //         "/static/**"
+    //     );
   }
 }
 

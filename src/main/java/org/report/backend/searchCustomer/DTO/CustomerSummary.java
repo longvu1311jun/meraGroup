@@ -1,8 +1,12 @@
 package org.report.backend.searchCustomer.DTO;
 
 import java.math.BigDecimal;
+import lombok.Data;
+import lombok.ToString;
 
-public class customerSummary {
+@Data
+@ToString
+public class CustomerSummary {
   private int totalOrders;
   private int deliveredOrders;
   private int returnedOrders;

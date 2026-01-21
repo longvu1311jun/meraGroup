@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Search Info</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f6f7fb;color:#222;margin:0;padding:0;}
+    .container{max-width:1100px;margin:24px auto;background:#fff;padding:20px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.06);}
+    h1{margin:0 0 12px;font-size:20px;}
+    .search{display:flex;gap:10px;margin-bottom:12px;}
+    .search input{flex:1;padding:10px 12px;font-size:14px;border:1px solid #ddd;border-radius:6px;}
+    .search button{padding:10px 14px;font-size:14px;border:none;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;}
+    .search button:hover{background:#1e4fd8;}
+    .card{border:1px solid #eee;border-radius:8px;padding:12px;margin-bottom:12px;}
+    .card h2{margin:0 0 8px;font-size:16px;}
+    table{width:100%;border-collapse:collapse;}
+    th,td{border:1px solid #eee;padding:8px;text-align:left;font-size:13px;}
+    thead th{background:#fafafa;}
+    .muted{color:#666;font-size:13px;}
+    .loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);display:none;align-items:center;justify-content:center;z-index:9999;}
+    .loading-box{background:#fff;padding:20px 28px;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,0.15);display:flex;align-items:center;gap:12px;}
+    .spinner{width:24px;height:24px;border:3px solid #e5e7eb;border-top-color:#2563eb;border-radius:50%;animation:spin 1s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Tra cứu khách hàng (SearchInfo)</h1>
+    <div class="search">
+      <input id="phoneInput" type="tel" placeholder="Nhập số điện thoại" />
+      <button id="searchBtn">Tìm</button>
+    </div>
+    <p class="muted">API: /api/search-info?phone=...</p>
+
+    <div id="summaryCard" class="card" style="display:none;">
+      <h2>Khách hàng</h2>
+      <div id="customerInfo"></div>
+      <h2 style="margin-top:12px;">Tổng quan</h2>
+      <div id="summaryInfo"></div>
+    </div>
+
+    <div class="card">
+      <h2>Đơn hàng</h2>
+      <div id="ordersWrap" class="muted">Chưa có dữ liệu</div>
+    </div>
+
+    <div class="card">
+      <h2>Ghi chú</h2>
+      <div id="notesWrap" class="muted">Chưa có dữ liệu</div>
+    </div>
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-box">
+      <div class="spinner"></div>
+      <div>Đang tìm, vui lòng chờ...</div>
+    </div>
+  </div>
+
+  <script>
+    const phoneInput = document.getElementById('phoneInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const summaryCard = document.getElementById('summaryCard');
+    const customerInfo = document.getElementById('customerInfo');
+    const summaryInfo = document.getElementById('summaryInfo');
+    const ordersWrap = document.getElementById('ordersWrap');
+    const notesWrap = document.getElementById('notesWrap');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+
+    function showLoading(show){ loadingOverlay.style.display = show ? 'flex' : 'none'; }
+
+    function sanitizePhone(value){
+      return (value || '').replace(/\D/g,'').trim();
+    }
+
+    function formatDate(str){
+      if(!str) return '-';
+      const date = new Date(str);
+      if(isNaN(date.getTime())) return str;
+      return date.toLocaleString('vi-VN');
+    }
+
+    function renderCustomer(customer){
+      if(!customer){ summaryCard.style.display='none'; return; }
+      customerInfo.innerHTML = `
+        <div><strong>Tên:</strong> ${customer.name || '-'}</div>
+        <div><strong>SĐT:</strong> ${customer.phone || '-'}</div>
+        <div><strong>Facebook:</strong> ${customer.facebookLink || '-'}</div>
+        <div><strong>Ngày tạo:</strong> ${formatDate(customer.createdAt)}</div>
+        <div><strong>Địa chỉ:</strong> ${(customer.addresses && customer.addresses.length) ? customer.addresses.map(a=>a.fullAddress||a.fullName||'').filter(Boolean).join(' | ') : '-'}</div>
+      `;
+      summaryCard.style.display = 'block';
+    }
+
+    function renderSummary(summary){
+      if(!summary){ summaryInfo.innerHTML = '<span class="muted">Không có dữ liệu</span>'; return; }
+      summaryInfo.innerHTML = `
+        <div><strong>Tổng đơn:</strong> ${summary.totalOrders ?? 0}</div>
+        <div><strong>Giao thành công:</strong> ${summary.deliveredOrders ?? 0}</div>
+        <div><strong>Hoàn/Trả:</strong> ${summary.returnedOrders ?? 0}</div>
+        <div><strong>Đã chi:</strong> ${summary.totalSpent ?? 0}</div>
+        <div><strong>COD:</strong> ${summary.totalCOD ?? 0}</div>
+        <div><strong>COD đã đối soát:</strong> ${summary.reconciledCOD ?? 0}</div>
+      `;
+    }
+
+    function renderOrders(orders){
+      if(!orders || orders.length === 0){
+        ordersWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+        return;
+      }
+      let html = `<table><thead><tr>
+        <th>ID</th><th>Trạng thái</th><th>Ngày tạo</th><th>Tổng</th><th>COD</th><th>Giao hàng</th>
+      </tr></thead><tbody>`;
+      orders.forEach(o=>{
+        html += `<tr>
+          <td>${o.orderId ?? '-'}</td>
+          <td>${o.statusText || o.status || '-'}</td>
+          <td>${formatDate(o.createdAt)}</td>
+          <td>${o.totalAmount ?? '-'}</td>
+          <td>${o.moneyToCollect ?? '-'}</td>
+          <td>${o.shipping && o.shipping.partnerStatus ? o.shipping.partnerStatus : '-'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+      ordersWrap.innerHTML = html;
+    }
+
+    function renderNotes(notes){
+      if(!notes || notes.length === 0){
+        notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+        return;
+      }
+      let html = `<table><thead><tr><th>Nội dung</th><th>Người tạo</th><th>Thời gian</th><th>Đơn</th></tr></thead><tbody>`;
+      notes.forEach(n=>{
+        html += `<tr>
+          <td>${n.message || '-'}</td>
+          <td>${n.createdBy || '-'}</td>
+          <td>${formatDate(n.createdAt)}</td>
+          <td>${n.orderId || '-'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+      notesWrap.innerHTML = html;
+    }
+
+    async function doSearch(){
+      const phone = sanitizePhone(phoneInput.value);
+      if(!phone){
+        alert('Vui lòng nhập số điện thoại hợp lệ');
+        return;
+      }
+      phoneInput.value = phone;
+      showLoading(true);
+      searchBtn.disabled = true;
+      try{
+        const res = await fetch(`/api/search-info?phone=${encodeURIComponent(phone)}`);
+        const data = await res.json();
+        if(!res.ok || data.error || data.message){
+          alert(data.error || data.message || 'Không thể tra cứu');
+          summaryCard.style.display='none';
+          ordersWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+          notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+          return;
+        }
+        renderCustomer(data.customer);
+        renderSummary(data.summary);
+        renderOrders(data.orders);
+        renderNotes(data.messages);
+      }catch(err){
+        console.error(err);
+        alert('Lỗi khi tra cứu: ' + err.message);
+      }finally{
+        showLoading(false);
+        searchBtn.disabled = false;
+      }
+    }
+
+    searchBtn.addEventListener('click', doSearch);
+    phoneInput.addEventListener('keydown', e=>{ if(e.key === 'Enter') doSearch(); });
+  </script>
+</body>
+</html>

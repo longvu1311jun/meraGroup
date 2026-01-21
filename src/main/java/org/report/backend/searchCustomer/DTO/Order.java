@@ -3,8 +3,18 @@ package org.report.backend.searchCustomer.DTO;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
-public class order {
+@AllArgsConstructor
+@NoArgsConstructor
+@Getter
+@Setter
+@ToString
+public class Order {
   private Long orderId;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;
@@ -18,6 +28,6 @@ public class order {
   private BigDecimal shippingFee;
   private BigDecimal moneyToCollect;
 
-  private List<orderItem> items;
-  private shipping shipping;
+  private List<OrderItem> items;
+  private Shipping shipping;
 }

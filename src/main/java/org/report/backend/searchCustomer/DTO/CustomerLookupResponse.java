@@ -1,10 +1,21 @@
 package org.report.backend.searchCustomer.DTO;
 
 import java.util.List;
+import lombok.Data;
+import lombok.ToString;
 
-public class customerLookupResponse {
-  private customer customer;
-  private customerSummary summary;
-  private List<order> orders;
-  private List<message> messages;
+@Data
+@ToString
+public class CustomerLookupResponse {
+  private Customer customer;
+  private CustomerSummary summary;
+  private List<Order> orders;
+  private List<CustomerNote> notes;
+
+  // Phân trang (từ API customers)
+  private int pageNumber;
+  private int pageSize;
+  private boolean success;
+  private int totalEntries;
+  private int totalPages;
 }

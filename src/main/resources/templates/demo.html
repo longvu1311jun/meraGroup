@@ -263,7 +263,10 @@
         <div class="bg-white border border-slate-200 rounded-lg p-3 hover:border-brand-300 hover:shadow-md transition">
             <div class="flex justify-between items-start mb-2">
                 <div>
-                    <div class="text-xs font-bold text-slate-400 uppercase">#${orderId}</div>
+                    <div class="text-xs font-bold text-slate-400 uppercase">#${o.orderId ? (o.orderLink ? 
+            `<a href="${o.orderLink}" target="_blank" rel="noopener noreferrer">${o.orderId}</a>` 
+            :
+             `<a href="https://pos.pages.fm/shop/1546758/order?order_id=${o.orderId}" target="_blank" rel="noopener noreferrer">${o.orderId}</a>`) : '-'}</div>
                     <h4 class="font-bold text-slate-800 text-base">${dateTime}</h4>
                 </div>
                 <span class="text-xs px-2 py-0.5 rounded border font-bold ${statusClass}">

@@ -189,7 +189,9 @@ public class SearchService {
         orderInfo.setStatus(status);
         orderInfo.setTimeAssignSeller(asText(orderNode, "time_assign_seller"));
         orderInfo.setAssigningSellerName(asText(orderNode.path("assigning_seller"), "name"));
-        orderInfo.setOrderId(extractOrderIdFromLink(asText(orderNode, "order_link")));
+        String orderLink = asText(orderNode, "order_link");
+        orderInfo.setOrderLink(orderLink);
+        orderInfo.setOrderId(extractOrderIdFromLink(orderLink));
 
         orders.add(orderInfo);
       }

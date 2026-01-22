@@ -19,4 +19,5 @@ public class OrderInfo {
     private String timeAssignSeller;
     private String assigningSellerName;
     private String orderId;
+    private String orderLink;
 }

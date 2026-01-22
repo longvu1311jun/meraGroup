@@ -123,7 +123,10 @@
           <td>${formatDate(o.timeAssignSeller)}</td>
           <td>${o.assigningSellerName ?? '-'}</td>
           <td>${itemsHtml}</td>
-          <td>${o.orderId ?? '-'}</td>
+          <td>${o.orderId ? (o.orderLink ? 
+            `<a href="${o.orderLink}" target="_blank" rel="noopener noreferrer">${o.orderId}</a>` 
+            :
+             `<a href="https://pos.pages.fm/shop/1546758/order?order_id=${o.orderId}" target="_blank" rel="noopener noreferrer">${o.orderId}</a>`) : '-'}</td>
         </tr>`;
       });
       html += `</tbody></table>`;

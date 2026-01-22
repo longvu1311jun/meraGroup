@@ -2,7 +2,7 @@ package org.report.backend.searchCustomer.Controller;
 
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import org.report.backend.searchCustomer.DTO.CustomerLookupResponse;
+import org.report.backend.searchCustomer.DTO.SearchCustomerResponse;
 import org.report.backend.searchCustomer.Service.SearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,12 +22,12 @@ public class SearchInfoController {
   private final SearchService searchService;
 
   /**
-   * API SearchInfo: truyền vào số điện thoại, trả về thông tin khách hàng từ POS.
+   * API SearchInfo: truyền vào số điện thoại, trả về thông tin khách hàng và đơn hàng từ POS.
    */
   @GetMapping("/search-info")
   public ResponseEntity<?> searchInfo(@RequestParam("phone") String phone) {
     try {
-      CustomerLookupResponse result = searchService.lookupCustomer(phone);
+      SearchCustomerResponse result = searchService.searchCustomer(phone);
       if (result == null || result.getCustomer() == null) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
             .body(Map.of("message", "Không tìm thấy khách hàng với số điện thoại đã nhập"));

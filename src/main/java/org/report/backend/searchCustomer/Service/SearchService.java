@@ -11,17 +11,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.report.backend.searchCustomer.DTO.Address;
-import org.report.backend.searchCustomer.DTO.Customer;
-import org.report.backend.searchCustomer.DTO.CustomerLookupResponse;
-import org.report.backend.searchCustomer.DTO.CustomerNote;
-import org.report.backend.searchCustomer.DTO.CustomerNoteCreator;
-import org.report.backend.searchCustomer.DTO.CustomerNoteEdit;
-import org.report.backend.searchCustomer.DTO.CustomerSummary;
-import org.report.backend.searchCustomer.DTO.Message;
-import org.report.backend.searchCustomer.DTO.Order;
-import org.report.backend.searchCustomer.DTO.OrderItem;
-import org.report.backend.searchCustomer.DTO.Shipping;
+import org.report.backend.searchCustomer.DTO.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,17 +40,11 @@ public class SearchService {
   private final RestTemplateBuilder restTemplateBuilder;
   private final ObjectMapper objectMapper;
 
-  public CustomerLookupResponse lookupCustomer(String phone) throws Exception {
+  public SearchCustomerResponse searchCustomer(String phone) throws Exception {
     String sanitizedPhone = sanitizePhone(phone);
     if (sanitizedPhone.isBlank()) {
       throw new IllegalArgumentException("Số điện thoại không hợp lệ");
     }
-
-    String url =
-        UriComponentsBuilder.fromHttpUrl(baseUrl + "/customers")
-            .queryParam("search", sanitizedPhone)
-            .queryParam("api_key", apiKey)
-            .toUriString();
 
     RestTemplate restTemplate =
         restTemplateBuilder
@@ -68,53 +52,189 @@ public class SearchService {
             .setReadTimeout(java.time.Duration.ofSeconds(20))
             .build();
 
+    // Gọi API tìm khách hàng
+    CustomerInfo customerInfo = fetchCustomerInfo(sanitizedPhone, restTemplate);
+
+    // Gọi API tìm đơn hàng
+    List<OrderInfo> orderInfos = fetchOrderInfos(sanitizedPhone, restTemplate);
+
+    return new SearchCustomerResponse(customerInfo, orderInfos);
+  }
+
+  private CustomerInfo fetchCustomerInfo(String phone, RestTemplate restTemplate) throws Exception {
+    String url = UriComponentsBuilder.fromHttpUrl(baseUrl + "/customers")
+        .queryParam("page_size", 30)
+        .queryParam("page_number", 1)
+        .queryParam("search", phone)
+        .queryParam("api_key", apiKey)
+        .toUriString();
+
     try {
-      ResponseEntity<String> response =
-          restTemplate.exchange(url, HttpMethod.GET, HttpEntity.EMPTY, String.class);
+      ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, HttpEntity.EMPTY, String.class);
       JsonNode root = objectMapper.readTree(response.getBody());
-      return mapResponse(root);
+      return parseCustomerInfo(root);
     } catch (RestClientResponseException ex) {
-      log.error("Call SearchInfo failed: status={} body={}", ex.getStatusCode().value(), ex.getResponseBodyAsString());
-      throw new RuntimeException("Không thể gọi POS API: " + ex.getStatusText());
+      log.error("Call customer API failed: status={} body={}", ex.getStatusCode().value(), ex.getResponseBodyAsString());
+      throw new RuntimeException("Không thể gọi customer API: " + ex.getStatusText());
     } catch (Exception ex) {
-      log.error("Unexpected error when calling POS API", ex);
+      log.error("Unexpected error when calling customer API", ex);
       throw ex;
     }
   }
 
-  private CustomerLookupResponse mapResponse(JsonNode root) {
+  private List<OrderInfo> fetchOrderInfos(String phone, RestTemplate restTemplate) throws Exception {
+    String url = UriComponentsBuilder.fromHttpUrl(baseUrl + "/orders")
+        .queryParam("page_size", 100)
+        .queryParam("page_number", 1)
+        .queryParam("search", phone)
+        .queryParam("api_key", apiKey)
+        .toUriString();
+
+    try {
+      ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, HttpEntity.EMPTY, String.class);
+      JsonNode root = objectMapper.readTree(response.getBody());
+      return parseOrderInfos(root);
+    } catch (RestClientResponseException ex) {
+      log.error("Call orders API failed: status={} body={}", ex.getStatusCode().value(), ex.getResponseBodyAsString());
+      throw new RuntimeException("Không thể gọi orders API: " + ex.getStatusText());
+    } catch (Exception ex) {
+      log.error("Unexpected error when calling orders API", ex);
+      throw ex;
+    }
+  }
+
+  private CustomerInfo parseCustomerInfo(JsonNode root) {
     if (root == null || root.isMissingNode()) {
       return null;
     }
 
-    CustomerLookupResponse response = new CustomerLookupResponse();
-
     JsonNode dataNode = root.path("data");
     if (!dataNode.isArray() || dataNode.isEmpty()) {
-      return response;
+      return new CustomerInfo();
     }
 
-    // Lấy thông tin khách hàng từ API customers
     JsonNode customerNode = dataNode.get(0);
-    response.setCustomer(parseCustomer(customerNode));
 
-    // Tổng quan khách hàng
-    response.setSummary(parseCustomerSummary(customerNode));
+    CustomerInfo customerInfo = new CustomerInfo();
+    customerInfo.setCustomerId(asText(customerNode, "id"));
+    customerInfo.setName(asText(customerNode, "name"));
+    customerInfo.setPhone(extractPhone(customerNode.path("phone_numbers")));
+    // Try to read full_address from top-level first, otherwise fallback to shop_customer_addresses[0].full_address
+    String fullAddr = asText(customerNode, "full_address");
+    if (fullAddr == null || fullAddr.isBlank()) {
+      JsonNode addrArray = customerNode.path("shop_customer_addresses");
+      if (addrArray.isArray() && !addrArray.isEmpty()) {
+        JsonNode a = addrArray.get(0);
+        fullAddr = asText(a, "full_address");
+        if (fullAddr == null || fullAddr.isBlank()) {
+          // Build from available address parts
+          StringBuilder sb = new StringBuilder();
+          String fn = asText(a, "full_name");
+          String addr = asText(a, "address");
+          String fa = asText(a, "full_address");
+          if (fn != null && !fn.isBlank()) sb.append(fn);
+          if (addr != null && !addr.isBlank()) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(addr);
+          }
+          if (fa != null && !fa.isBlank() && (addr == null || !fa.equals(addr))) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(fa);
+          }
+          if (sb.length() > 0) fullAddr = sb.toString();
+        }
+      }
+    }
+    customerInfo.setFullAddress(fullAddr);
+    customerInfo.setSucceedOrderCount(customerNode.path("succeed_order_count").asInt(0));
+    customerInfo.setNotes(parseCustomerNoteInfos(customerNode.path("notes")));
 
-    // Danh sách đơn hàng - API customers không trả về orders, set empty list
-    response.setOrders(new ArrayList<>());
+    return customerInfo;
+  }
 
-    // Ghi chú
-    response.setNotes(parseCustomerNotes(customerNode.path("notes")));
+  private List<CustomerNoteInfo> parseCustomerNoteInfos(JsonNode notesNode) {
+    List<CustomerNoteInfo> notes = new ArrayList<>();
+    if (!notesNode.isArray()) {
+      return notes;
+    }
 
-    // Thông tin phân trang
-    response.setPageNumber(root.path("page_number").asInt(1));
-    response.setPageSize(root.path("page_size").asInt(30));
-    response.setSuccess(root.path("success").asBoolean(true));
-    response.setTotalEntries(root.path("total_entries").asInt(0));
-    response.setTotalPages(root.path("total_pages").asInt(1));
+    for (JsonNode noteNode : notesNode) {
+      CustomerNoteInfo note = new CustomerNoteInfo();
+      note.setMessage(asText(noteNode, "message"));
+      note.setOrderId(asText(noteNode, "order_id"));
+      notes.add(note);
+    }
+    return notes;
+  }
 
-    return response;
+  private List<OrderInfo> parseOrderInfos(JsonNode root) {
+    List<OrderInfo> orders = new ArrayList<>();
+    if (root == null || root.isMissingNode()) {
+      return orders;
+    }
+
+    JsonNode dataNode = root.path("data");
+    if (!dataNode.isArray()) {
+      return orders;
+    }
+
+    for (JsonNode orderNode : dataNode) {
+      int status = orderNode.path("status").asInt(0);
+      // Chỉ lấy đơn có status = 3
+      if (status == 3) {
+        OrderInfo orderInfo = new OrderInfo();
+        orderInfo.setBillPhoneNumber(extractPhone(orderNode.path("phone_numbers")));
+        orderInfo.setItems(parseOrderItemInfos(orderNode.path("items")));
+        orderInfo.setSystemId(asText(orderNode, "system_id"));
+        orderInfo.setStatus(status);
+        orderInfo.setTimeAssignSeller(asText(orderNode, "time_assign_seller"));
+        orderInfo.setAssigningSellerName(asText(orderNode.path("assigning_seller"), "name"));
+        orderInfo.setOrderId(extractOrderIdFromLink(asText(orderNode, "order_link")));
+
+        orders.add(orderInfo);
+      }
+    }
+    return orders;
+  }
+
+  private List<OrderItemInfo> parseOrderItemInfos(JsonNode itemsNode) {
+    List<OrderItemInfo> items = new ArrayList<>();
+    if (!itemsNode.isArray()) {
+      return items;
+    }
+
+    for (JsonNode itemNode : itemsNode) {
+      OrderItemInfo item = new OrderItemInfo();
+      item.setQuantity(itemNode.path("quantity").asInt(0));
+
+      // Lấy name từ variation_info hoặc product name
+      JsonNode variationInfo = itemNode.path("variation_info");
+      String name = asText(variationInfo, "name");
+      if (name == null || name.isEmpty()) {
+        name = asText(itemNode, "product_name");
+      }
+      item.setName(name);
+
+      items.add(item);
+    }
+    return items;
+  }
+
+  private String extractOrderIdFromLink(String orderLink) {
+    if (orderLink == null || orderLink.isEmpty()) {
+      return null;
+    }
+
+    // Extract order_id from URL like: https://pos.pages.fm/shop/1546758/order?order_id=360300955702881
+    try {
+      String[] parts = orderLink.split("order_id=");
+      if (parts.length > 1) {
+        return parts[1];
+      }
+    } catch (Exception e) {
+      log.warn("Could not extract order_id from link: {}", orderLink);
+    }
+    return null;
   }
 
   private Customer parseCustomer(JsonNode node) {

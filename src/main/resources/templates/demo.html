@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tra cứu thông tin khách hàng</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        .timeline-line::before {
+            content: '';
+            position: absolute;
+            top: 15px;
+            bottom: 0;
+            left: 15px;
+            width: 2px;
+            background: #e5e7eb;
+            z-index: 0;
+        }
+
+        /* Ẩn thanh cuộn nhưng vẫn cuộn được */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        #ordersWrap,
+        #notesWrap {
+            max-height: 100%;
+            /* chỉnh số này theo layout */
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body class="text-slate-600 h-screen flex flex-col overflow-hidden bg-slate-50">
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <div>Đang tìm, vui lòng chờ...</div>
+        </div>
+    </div>
+    <header class="bg-white shadow-sm border-b border-slate-200 flex-none z-50">
+        <div class="w-full px-4 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-2 w-[340px]">
+                <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold">
+                    <i class="fa-solid fa-hospital"></i>
+                </div>
+                <h1 class="font-bold text-lg text-slate-800 tracking-tight">MERA<span
+                        class="text-brand-600">Group</span></h1>
+            </div>
+
+            <div class="flex-1 px-4">
+                <div class="relative group max-w-3xl mx-auto">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
+                    </div>
+
+                    <input type="text" id="phoneInput"
+                        class="block w-full pl-10 pr-24 py-2.5 border border-slate-200 rounded-full bg-slate-100 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none transition text-sm"
+                        placeholder="Tìm kiếm SĐT, Tên...">
+
+                    <button id="searchBtn"
+                        class="absolute right-1 top-1 bottom-1 bg-brand-600 hover:bg-brand-700 text-white px-5 rounded-full text-xs font-bold transition shadow-sm flex items-center">
+                        Tra cứu
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3 w-[100px] justify-end">
+                <div class="w-8 h-8 rounded-full bg-slate-200 overflow-hidden border border-slate-300">
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Admin" alt="Admin">
+                </div>
+            </div>
+        </div>
+    </header>
+    <main class="flex-1 w-full h-full p-3 overflow-hidden">
+
+        <div class="grid grid-cols-1 lg:grid-cols-[350px_1fr_1fr] gap-4 h-full">
+            <!-- thông tin khách hàng -->
+            <div class="flex flex-col gap-4 overflow-y-auto no-scrollbar pb-10">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-none"
+                    id="customerCard">
+                    <div class="h-20 bg-gradient-to-r from-brand-600 to-teal-400"></div>
+                    <div class="px-5 pb-5 text-center relative" id="customerInfo">
+
+
+                    </div>
+                </div>
+
+                <div
+                    class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col flex-1 min-h-[200px]">
+                    <h3 class="font-bold text-slate-700 text-sm mb-2">Ghi chú nhanh</h3>
+                    <textarea
+                        class="w-full border border-slate-200 rounded-lg p-3 text-sm focus:ring-1 focus:ring-brand-500 focus:outline-none flex-1 resize-none bg-slate-50"
+                        placeholder="Nhập tình trạng khách hàng..."></textarea>
+                    <button
+                        class="mt-3 w-full bg-slate-800 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-slate-700 transition shadow-sm">Lưu
+                        lại</button>
+                </div>
+            </div>
+            <!-- Lịch sử mua hàng -->
+            <div id="ordersWrap"></div>
+            <!-- Nhật ký chăm sóc -->
+            <div id="notesWrap"></div>
+        </div>
+    </main>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#f0fdfa', 100: '#ccfbf1', 500: '#14b8a6', 600: '#0d9488', 700: '#0f766e' }
+                    }
+                }
+            }
+        }
+        const phoneInput = document.getElementById('phoneInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const customerCard = document.getElementById('customerCard');
+        const customerInfo = document.getElementById('customerInfo');
+        const ordersWrap = document.getElementById('ordersWrap');
+        const notesWrap = document.getElementById('notesWrap');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        function showLoading(show) { loadingOverlay.style.display = show ? 'flex' : 'none'; }
+
+        function sanitizePhone(value) {
+            return (value || '').replace(/\D/g, '').trim();
+        }
+
+        function formatDate(str) {
+            if (!str) return '-';
+            const date = new Date(str);
+            if (isNaN(date.getTime())) return str;
+            return date.toLocaleString('vi-VN');
+        }
+
+        function renderCustomer(customer) {
+            if (!customer) { customerCard.style.display = 'none'; return; }
+            const succeedCount = customer.succeedOrderCount || 0;
+            const customerStatus = succeedCount === 0 ? 'Khách mới' : 'Khách cũ';
+            customerInfo.innerHTML = `
+            <div class="w-20 h-20 mx-auto -mt-10 bg-white rounded-full p-1 shadow-md">
+                            <img src="https://api.dicebear.com/9.x/avataaars/svg?seed=Amaya&backgroundColor=65c9ff,b6e3f4&backgroundType=solid,gradientLinear&clothingGraphic=diamond&eyebrows=default,defaultNatural&eyes=default&facialHair[]&facialHairColor[]"
+                                alt="Avatar" class="w-full h-full rounded-full">
+                        </div>
+                        <h2 class="mt-2 text-xl font-bold text-slate-800" >${customer.name || '-'}</h2>
+                        <div class="flex justify-center items-center gap-2 text-slate-500 mt-1 mb-4">
+                            <span class="font-bold text-slate-700 text-lg">${customer.phone || '-'}</span>
+                            <button class="text-brand-600 bg-brand-50 px-2 py-0.5 rounded text-xs hover:bg-brand-100"><i
+                                    class="fa-regular fa-copy"></i></button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3 mb-4">
+                            <div class="bg-slate-50 p-2 rounded border border-slate-100">
+                                <span class="block text-[10px] text-slate-400 uppercase font-bold">Thành công</span>
+                                <span class="block text-xl font-bold text-emerald-600">${customer.succeedOrderCount || 0}</span>
+                            </div>
+                            <div class="bg-slate-50 p-2 rounded border border-slate-100">
+                            <span class="block text-[10px] text-slate-400 uppercase font-bold">Trạng thái</span>
+                            <span class="block text-base font-bold text-slate-700 mt-0.5">
+                    ${customerStatus}
+                </span>
+            </div>
+                        </div>
+
+                        <div class="text-left space-y-3 border-t border-slate-100 pt-3">
+                            <div>
+                                <span class="text-[10px] text-slate-400 font-bold uppercase">Customer ID</span>
+                                <div
+                                    class="bg-slate-100 text-slate-600 text-[11px] p-1.5 rounded font-mono truncate mt-1">
+                                    ${customer.customerId || '-'}</div>
+                            </div>
+                            <div>
+                                <span class="text-[10px] text-slate-400 font-bold uppercase">Địa chỉ</span>
+                                <p class="text-sm text-slate-500 italic mt-0.5">${customer.fullAddress || '-'}</p>
+                            </div>
+                        </div>
+   
+      `;
+            customerCard.style.display = 'block';
+        }
+
+        function renderSummary(summary) {
+            if (!summary) { summaryInfo.innerHTML = '<span class="muted">Không có dữ liệu</span>'; return; }
+            summaryInfo.innerHTML = `
+        <div><strong>Tổng đơn:</strong> ${summary.totalOrders ?? 0}</div>
+        <div><strong>Giao thành công:</strong> ${summary.deliveredOrders ?? 0}</div>
+        <div><strong>Hoàn/Trả:</strong> ${summary.returnedOrders ?? 0}</div>
+        <div><strong>Đã chi:</strong> ${summary.totalSpent ?? 0}</div>
+        <div><strong>COD:</strong> ${summary.totalCOD ?? 0}</div>
+        <div><strong>COD đã đối soát:</strong> ${summary.reconciledCOD ?? 0}</div>
+      `;
+        }
+
+        function renderOrders(orders) {
+            console.log('render order');
+            if (!orders || orders.length === 0) {
+                ordersWrap.innerHTML = '<span class="text-slate-400 text-sm">Không có dữ liệu</span>';
+                return;
+            }
+
+            const totalOrders = orders.length;
+
+            let html = `
+    <div class="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-100 bg-white sticky top-0 z-10 flex justify-between items-center">
+            <h3 class="font-bold text-lg text-slate-800">
+                <i class="fa-solid fa-box-open text-brand-500 mr-2"></i>Lịch sử mua hàng
+            </h3>
+            <span class="text-sm text-slate-400 font-medium">${totalOrders} đơn hàng</span>
+        </div>
+
+        <div class="p-3 space-y-3 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
+    `;
+
+            orders.forEach(o => {
+                // ==== Status mapping ====
+                let statusText = o.status ?? '-';
+                let statusClass = 'bg-slate-100 text-slate-600 border-slate-200';
+
+                if (statusText === 3 || statusText === 'Hoàn thành') {
+                    statusText = 'Hoàn thành';
+                    statusClass = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+                } else if (statusText === 'PENDING') {
+                    statusText = 'Chờ xử lý';
+                    statusClass = 'bg-yellow-50 text-yellow-600 border-yellow-100';
+                } else if (statusText === 'CANCELLED') {
+                    statusText = 'Đã huỷ';
+                    statusClass = 'bg-red-50 text-red-600 border-red-100';
+                }
+
+                // ==== Items ====
+                let itemsHtml = '';
+                if (o.items && o.items.length > 0) {
+                    itemsHtml = o.items.map(item => `
+                <span class="bg-blue-50 text-blue-700 text-sm font-medium px-2 py-0.5 rounded border border-blue-100">
+                    ${item.name} (${item.quantity})
+                </span>
+            `).join('');
+                } else {
+                    itemsHtml = `<span class="text-slate-400 text-sm">Không có sản phẩm</span>`;
+                }
+
+                // ==== Time ====
+                const dateTime = formatDate(o.timeAssignSeller); // bạn đang có sẵn
+                const orderId = o.orderId ?? o.systemId ?? '-';
+                const sellerName = o.assigningSellerName ?? '-';
+
+                html += `
+        <div class="bg-white border border-slate-200 rounded-lg p-3 hover:border-brand-300 hover:shadow-md transition">
+            <div class="flex justify-between items-start mb-2">
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase">#${orderId}</div>
+                    <h4 class="font-bold text-slate-800 text-base">${dateTime}</h4>
+                </div>
+                <span class="text-xs px-2 py-0.5 rounded border font-bold ${statusClass}">
+                    ${statusText}
+                </span>
+            </div>
+
+            <div class="flex flex-wrap gap-1.5 mb-2">
+                ${itemsHtml}
+            </div>
+
+            <div class="text-sm text-slate-400 pt-2 border-t border-slate-50 flex justify-between">
+                <span>Sale: ${sellerName}</span>
+            </div>
+        </div>
+        `;
+            });
+
+            html += `
+        </div>
+    </div>
+    `;
+
+            ordersWrap.innerHTML = html;
+        }
+
+        function renderNotes(notes) {
+            console.log('render notes', notes);
+            if (!notes || notes.length === 0) {
+                notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+                return;
+            }
+            let html = `<div class="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden" >
+                <div class="px-5 py-3 border-b border-slate-100 bg-white sticky top-0 z-10">
+                    <h3 class="font-bold text-lg text-slate-800"><i
+                            class="fa-regular fa-comments text-brand-500 mr-2"></i>Nhật ký chăm sóc</h3>
+                </div>
+                <div class="p-4 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
+                    <div class="relative timeline-line space-y-6 pl-2">
+                        `;
+            notes.forEach(n => {
+                if (n.length === 0) {
+                    html += `<span class="text-slate-400 text-sm">Khách hàng chưa có note</span>`;
+                } else {
+                    html += `  <div class="relative pl-8">
+                            <div
+                                class="absolute left-0 top-1 w-7 h-7 bg-white border-2 border-brand-500 rounded-full flex items-center justify-center z-10 shadow-sm">
+                                <i class="fa-solid fa-check text-brand-500 text-xs"></i>
+                            </div>  <div>
+                                <span class="text-xs text-slate-400 font-bold uppercase tracking-wider">${n.orderId || '-'}</span>
+                                <div
+                                    class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm mt-1 group hover:border-brand-200 transition">
+                                    <p class="text-slate-800 text-base font-medium">${n.message || '-'}</p>
+                                    <p class="text-xs text-slate-400 mt-1">${n.orderId || '-'}</p>
+                                </div>
+                            </div> </div>`;
+                };
+            });
+            html += ` 
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+            notesWrap.innerHTML = html;
+        }
+
+        async function doSearch() {
+            console.log(phoneInput.value);
+            const phone = sanitizePhone(phoneInput.value);
+            if (!phone) {
+                alert('Vui lòng nhập số điện thoại hợp lệ');
+                return;
+            }
+            phoneInput.value = phone;
+            showLoading(true);
+            searchBtn.disabled = true;
+            try {
+                console.log('Clicked search button');
+                const res = await fetch(`/api/search-info?phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (!res.ok || data.error || data.message) {
+                    alert(data.error || data.message || 'Không thể tra cứu');
+                    customerCard.style.display = 'none';
+                    ordersWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+                    notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+                    return;
+                }
+                renderCustomer(data.customer);
+                renderOrders(data.orders);
+                renderNotes(data.customer ? data.customer.notes : []);
+            } catch (err) {
+                console.error(err);
+                alert('Lỗi khi tra cứu: ' + err.message);
+            } finally {
+                showLoading(false);
+                searchBtn.disabled = false;
+            }
+        }
+
+        searchBtn.addEventListener('click', doSearch);
+        phoneInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    </script>
+</body>
+
+</html>

@@ -41,11 +41,39 @@
             /* chỉnh số này theo layout */
             overflow-y: auto;
         }
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.25);
+            z-index: 60;
+        }
+        .loading-box {
+            background: white;
+            padding: 14px 18px;
+            border-radius: 8px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+        }
+        .loading-box .spinner {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 3px solid #e6fffa;
+            border-top-color: #14b8a6;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 
 <body class="text-slate-600 h-screen flex flex-col overflow-hidden bg-slate-50">
-    <div id="loadingOverlay" class="loading-overlay">
+    <div id="loadingOverlay" class="loading-overlay" style="display:none;">
         <div class="loading-box">
             <div class="spinner"></div>
             <div>Đang tìm, vui lòng chờ...</div>
@@ -87,288 +115,111 @@
     </header>
     <main class="flex-1 w-full h-full p-3 overflow-hidden">
 
-        <div class="grid grid-cols-1 lg:grid-cols-[350px_1fr_1fr] gap-4 h-full">
+        <div id="emptyState" class="w-full h-full flex items-center justify-center text-slate-500">
+            Nhập số điện thoại để tìm kiếm thông tin khách hàng
+        </div>
+
+        <div id="mainGrid" class="hidden grid grid-cols-1 lg:grid-cols-[350px_1fr_1fr] gap-4 h-full">
             <!-- thông tin khách hàng -->
             <div class="flex flex-col gap-4 overflow-y-auto no-scrollbar pb-10">
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-none"
-                    id="customerCard">
+                    id="customerCard" style="order:2;">
                     <div class="h-20 bg-gradient-to-r from-brand-600 to-teal-400"></div>
                     <div class="px-5 pb-5 text-center relative" id="customerInfo">
 
 
                     </div>
                 </div>
-
-                <div
-                    class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col flex-1 min-h-[200px]">
-                    <h3 class="font-bold text-slate-700 text-sm mb-2">Ghi chú nhanh</h3>
-                    <textarea
-                        class="w-full border border-slate-200 rounded-lg p-3 text-sm focus:ring-1 focus:ring-brand-500 focus:outline-none flex-1 resize-none bg-slate-50"
-                        placeholder="Nhập tình trạng khách hàng..."></textarea>
-                    <button
-                        class="mt-3 w-full bg-slate-800 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-slate-700 transition shadow-sm">Lưu
-                        lại</button>
+                <div id="leftProductSummary" class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col flex-1 min-h-[120px]">
+                    <h3 class="font-bold text-slate-700 text-sm mb-2">Tổng hợp sản phẩm đã mua</h3>
+                    <div id="leftProductSummaryContent" class="text-sm text-slate-600"></div>
                 </div>
             </div>
             <!-- Lịch sử mua hàng -->
             <div id="ordersWrap"></div>
-            <!-- Nhật ký chăm sóc -->
-            <div id="notesWrap"></div>
+            <!-- Nhật ký chăm sóc (collapsed by default) -->
+            <div id="notesContainer" class="flex flex-col gap-2">
+                <div id="notesHeader" class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 flex items-center justify-between cursor-pointer">
+                    <div class="font-bold text-slate-700">Nhật ký chăm sóc</div>
+                    <button id="notesToggle" class="text-sm text-brand-600 bg-brand-50 px-3 py-1 rounded">Mở</button>
+                </div>
+                <div id="notesWrap" class="hidden"></div>
+                <!-- Trao đổi (hiển thị luôn) - nằm trong cùng thẻ với Nhật ký -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mt-2">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="font-bold text-slate-700">Trao đổi</div>
+                        <button id="exchangeAddBtn" class="text-sm text-white bg-brand-600 px-3 py-1 rounded">Thêm mới</button>
+                    </div>
+                    <div id="conversationsList"></div>
+                </div>
+            </div>
         </div>
     </main>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        brand: { 50: '#f0fdfa', 100: '#ccfbf1', 500: '#14b8a6', 600: '#0d9488', 700: '#0f766e' }
-                    }
-                }
-            }
-        }
-        const phoneInput = document.getElementById('phoneInput');
-        const searchBtn = document.getElementById('searchBtn');
-        const customerCard = document.getElementById('customerCard');
-        const customerInfo = document.getElementById('customerInfo');
-        const ordersWrap = document.getElementById('ordersWrap');
-        const notesWrap = document.getElementById('notesWrap');
-        const loadingOverlay = document.getElementById('loadingOverlay');
-
-        function showLoading(show) { loadingOverlay.style.display = show ? 'flex' : 'none'; }
-
-        function sanitizePhone(value) {
-            return (value || '').replace(/\D/g, '').trim();
-        }
-
-        function formatDate(str) {
-            if (!str) return '-';
-            const date = new Date(str);
-            if (isNaN(date.getTime())) return str;
-            return date.toLocaleString('vi-VN');
-        }
-
-        function renderCustomer(customer) {
-            if (!customer) { customerCard.style.display = 'none'; return; }
-            const succeedCount = customer.succeedOrderCount || 0;
-            const customerStatus = succeedCount === 0 ? 'Khách mới' : 'Khách cũ';
-            customerInfo.innerHTML = `
-            <div class="w-20 h-20 mx-auto -mt-10 bg-white rounded-full p-1 shadow-md">
-                            <img src="https://api.dicebear.com/9.x/avataaars/svg?seed=Amaya&backgroundColor=65c9ff,b6e3f4&backgroundType=solid,gradientLinear&clothingGraphic=diamond&eyebrows=default,defaultNatural&eyes=default&facialHair[]&facialHairColor[]"
-                                alt="Avatar" class="w-full h-full rounded-full">
-                        </div>
-                        <h2 class="mt-2 text-xl font-bold text-slate-800" >${customer.name || '-'}</h2>
-                        <div class="flex justify-center items-center gap-2 text-slate-500 mt-1 mb-4">
-                            <span class="font-bold text-slate-700 text-lg">${customer.phone || '-'}</span>
-                            <button class="text-brand-600 bg-brand-50 px-2 py-0.5 rounded text-xs hover:bg-brand-100"><i
-                                    class="fa-regular fa-copy"></i></button>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-3 mb-4">
-                            <div class="bg-slate-50 p-2 rounded border border-slate-100">
-                                <span class="block text-[10px] text-slate-400 uppercase font-bold">Thành công</span>
-                                <span class="block text-xl font-bold text-emerald-600">${customer.succeedOrderCount || 0}</span>
-                            </div>
-                            <div class="bg-slate-50 p-2 rounded border border-slate-100">
-                            <span class="block text-[10px] text-slate-400 uppercase font-bold">Trạng thái</span>
-                            <span class="block text-base font-bold text-slate-700 mt-0.5">
-                    ${customerStatus}
-                </span>
+    <!-- Order detail modal -->
+    <div id="orderModal" class="fixed inset-0 hidden items-center justify-center z-50">
+        <div class="absolute inset-0 bg-black/40" id="orderModalOverlay"></div>
+        <div class="bg-white rounded-lg shadow-lg w-[900px] max-w-[95%] relative z-10">
+            <div class="px-5 py-3 border-b flex items-center justify-between">
+                <h3 class="font-bold">Chi tiết đơn hàng</h3>
+                <button id="orderModalClose" class="text-slate-500 hover:text-slate-700">Đóng ✕</button>
             </div>
-                        </div>
-
-                        <div class="text-left space-y-3 border-t border-slate-100 pt-3">
-                            <div>
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Customer ID</span>
-                                <div
-                                    class="bg-slate-100 text-slate-600 text-[11px] p-1.5 rounded font-mono truncate mt-1">
-                                    ${customer.customerId || '-'}</div>
-                            </div>
-                            <div>
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Địa chỉ</span>
-                                <p class="text-sm text-slate-500 italic mt-0.5">${customer.fullAddress || '-'}</p>
-                            </div>
-                        </div>
-   
-      `;
-            customerCard.style.display = 'block';
-        }
-
-        function renderSummary(summary) {
-            if (!summary) { summaryInfo.innerHTML = '<span class="muted">Không có dữ liệu</span>'; return; }
-            summaryInfo.innerHTML = `
-        <div><strong>Tổng đơn:</strong> ${summary.totalOrders ?? 0}</div>
-        <div><strong>Giao thành công:</strong> ${summary.deliveredOrders ?? 0}</div>
-        <div><strong>Hoàn/Trả:</strong> ${summary.returnedOrders ?? 0}</div>
-        <div><strong>Đã chi:</strong> ${summary.totalSpent ?? 0}</div>
-        <div><strong>COD:</strong> ${summary.totalCOD ?? 0}</div>
-        <div><strong>COD đã đối soát:</strong> ${summary.reconciledCOD ?? 0}</div>
-      `;
-        }
-
-        function renderOrders(orders) {
-            console.log('render order');
-            if (!orders || orders.length === 0) {
-                ordersWrap.innerHTML = '<span class="text-slate-400 text-sm">Không có dữ liệu</span>';
-                return;
-            }
-
-            const totalOrders = orders.length;
-
-            let html = `
-    <div class="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden">
-        <div class="px-5 py-3 border-b border-slate-100 bg-white sticky top-0 z-10 flex justify-between items-center">
-            <h3 class="font-bold text-lg text-slate-800">
-                <i class="fa-solid fa-box-open text-brand-500 mr-2"></i>Lịch sử mua hàng
-            </h3>
-            <span class="text-sm text-slate-400 font-medium">${totalOrders} đơn hàng</span>
-        </div>
-
-        <div class="p-3 space-y-3 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
-    `;
-
-            orders.forEach(o => {
-                // ==== Status mapping ====
-                let statusText = o.status ?? '-';
-                let statusClass = 'bg-slate-100 text-slate-600 border-slate-200';
-
-                if (statusText === 3 || statusText === 'Hoàn thành') {
-                    statusText = 'Hoàn thành';
-                    statusClass = 'bg-emerald-50 text-emerald-600 border-emerald-100';
-                } else if (statusText === 'PENDING') {
-                    statusText = 'Chờ xử lý';
-                    statusClass = 'bg-yellow-50 text-yellow-600 border-yellow-100';
-                } else if (statusText === 'CANCELLED') {
-                    statusText = 'Đã huỷ';
-                    statusClass = 'bg-red-50 text-red-600 border-red-100';
-                }
-
-                // ==== Items ====
-                let itemsHtml = '';
-                if (o.items && o.items.length > 0) {
-                    itemsHtml = o.items.map(item => `
-                <span class="bg-blue-50 text-blue-700 text-sm font-medium px-2 py-0.5 rounded border border-blue-100">
-                    ${item.name} (${item.quantity})
-                </span>
-            `).join('');
-                } else {
-                    itemsHtml = `<span class="text-slate-400 text-sm">Không có sản phẩm</span>`;
-                }
-
-                // ==== Time ====
-                const dateTime = formatDate(o.timeAssignSeller); // bạn đang có sẵn
-                const orderId = o.orderId ?? o.systemId ?? '-';
-                const sellerName = o.assigningSellerName ?? '-';
-
-                html += `
-        <div class="bg-white border border-slate-200 rounded-lg p-3 hover:border-brand-300 hover:shadow-md transition">
-            <div class="flex justify-between items-start mb-2">
-                <div>
-                    <div class="text-xs font-bold text-slate-400 uppercase">#${o.orderId ? (o.orderLink ? 
-            `<a href="${o.orderLink}" target="_blank" rel="noopener noreferrer">${o.orderId}</a>` 
-            :
-             `<a href="https://pos.pages.fm/shop/1546758/order?order_id=${o.orderId}" target="_blank" rel="noopener noreferrer">${o.orderId}</a>`) : '-'}</div>
-                    <h4 class="font-bold text-slate-800 text-base">${dateTime}</h4>
-                </div>
-                <span class="text-xs px-2 py-0.5 rounded border font-bold ${statusClass}">
-                    ${statusText}
-                </span>
-            </div>
-
-            <div class="flex flex-wrap gap-1.5 mb-2">
-                ${itemsHtml}
-            </div>
-
-            <div class="text-sm text-slate-400 pt-2 border-t border-slate-50 flex justify-between">
-                <span>Sale: ${sellerName}</span>
-            </div>
-        </div>
-        `;
-            });
-
-            html += `
-        </div>
-    </div>
-    `;
-
-            ordersWrap.innerHTML = html;
-        }
-
-        function renderNotes(notes) {
-            console.log('render notes', notes);
-            if (!notes || notes.length === 0) {
-                notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
-                return;
-            }
-            let html = `<div class="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden" >
-                <div class="px-5 py-3 border-b border-slate-100 bg-white sticky top-0 z-10">
-                    <h3 class="font-bold text-lg text-slate-800"><i
-                            class="fa-regular fa-comments text-brand-500 mr-2"></i>Nhật ký chăm sóc</h3>
-                </div>
-                <div class="p-4 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
-                    <div class="relative timeline-line space-y-6 pl-2">
-                        `;
-            notes.forEach(n => {
-                if (n.length === 0) {
-                    html += `<span class="text-slate-400 text-sm">Khách hàng chưa có note</span>`;
-                } else {
-                    html += `  <div class="relative pl-8">
-                            <div
-                                class="absolute left-0 top-1 w-7 h-7 bg-white border-2 border-brand-500 rounded-full flex items-center justify-center z-10 shadow-sm">
-                                <i class="fa-solid fa-check text-brand-500 text-xs"></i>
-                            </div>  <div>
-                                <span class="text-xs text-slate-400 font-bold uppercase tracking-wider">${n.orderId || '-'}</span>
-                                <div
-                                    class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm mt-1 group hover:border-brand-200 transition">
-                                    <p class="text-slate-800 text-base font-medium">${n.message || '-'}</p>
-                                    <p class="text-xs text-slate-400 mt-1">${n.orderId || '-'}</p>
-                                </div>
-                            </div> </div>`;
-                };
-            });
-            html += ` 
-                        </div>
+            <div class="p-5" id="orderModalContent">
+                <div id="orderDetails"></div>
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-slate-600 mb-2">Ghi chú cho đơn</label>
+                    <textarea id="orderNoteInput" class="w-full border border-slate-200 rounded p-2" rows="3"></textarea>
+                    <div class="mt-3 flex justify-end gap-2">
+                        <button id="orderNoteCancel" class="px-4 py-2 rounded bg-slate-100">Hủy</button>
+                        <button id="orderNoteSubmit" class="px-4 py-2 rounded bg-brand-600 text-white">Ghi chú</button>
                     </div>
                 </div>
-            </div>`;
-            notesWrap.innerHTML = html;
-        }
-
-        async function doSearch() {
-            console.log(phoneInput.value);
-            const phone = sanitizePhone(phoneInput.value);
-            if (!phone) {
-                alert('Vui lòng nhập số điện thoại hợp lệ');
-                return;
-            }
-            phoneInput.value = phone;
-            showLoading(true);
-            searchBtn.disabled = true;
-            try {
-                console.log('Clicked search button');
-                const res = await fetch(`/api/search-info?phone=${encodeURIComponent(phone)}`);
-                const data = await res.json();
-                if (!res.ok || data.error || data.message) {
-                    alert(data.error || data.message || 'Không thể tra cứu');
-                    customerCard.style.display = 'none';
-                    ordersWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
-                    notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
-                    return;
-                }
-                renderCustomer(data.customer);
-                renderOrders(data.orders);
-                renderNotes(data.customer ? data.customer.notes : []);
-            } catch (err) {
-                console.error(err);
-                alert('Lỗi khi tra cứu: ' + err.message);
-            } finally {
-                showLoading(false);
-                searchBtn.disabled = false;
-            }
-        }
-
-        searchBtn.addEventListener('click', doSearch);
-        phoneInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+            </div>
+        </div>
+    </div>
+    <!-- Notes modal -->
+    <div id="notesModal" class="fixed inset-0 hidden items-center justify-center z-50">
+        <div class="absolute inset-0 bg-black/40" id="notesModalOverlay"></div>
+        <div class="bg-white rounded-lg shadow-lg w-[760px] max-w-[95%] relative z-10">
+            <div class="px-5 py-3 border-b flex items-center justify-between">
+                <h3 class="font-bold">Nhật ký chăm sóc</h3>
+                <button id="notesModalClose" class="text-slate-500 hover:text-slate-700">Đóng ✕</button>
+            </div>
+            <div class="p-5" id="notesModalContent" style="max-height:70vh; overflow:auto;">
+                <!-- notes rendered here -->
+            </div>
+        </div>
+    </div>
+    <!-- Exchange add modal -->
+    <div id="exchangeModal" class="fixed inset-0 hidden items-center justify-center z-50">
+        <div class="absolute inset-0 bg-black/40" id="exchangeModalOverlay"></div>
+        <div class="bg-white rounded-lg shadow-lg w-[720px] max-w-[95%] relative z-10">
+            <div class="px-5 py-3 border-b flex items-center justify-between">
+                <h3 class="font-bold">Thêm trao đổi mới</h3>
+                <button id="exchangeModalClose" class="text-slate-500 hover:text-slate-700">Đóng ✕</button>
+            </div>
+            <div class="p-5" id="exchangeModalContent">
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-2">Nội dung trao đổi</label>
+                    <textarea id="exchangeInput" class="w-full border border-slate-200 rounded p-2" rows="5"></textarea>
+                </div>
+                <!-- Removed date input; date will be set automatically on save -->
+                <div class="mt-4 flex justify-end gap-2">
+                    <button id="exchangeCancel" class="px-4 py-2 rounded bg-slate-100">Hủy</button>
+                    <button id="exchangeSubmit" class="px-4 py-2 rounded bg-brand-600 text-white">Lưu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Load JS with cache-buster so users see latest changes immediately
+        (function() {
+            var s = document.createElement('script');
+            s.src = '/js/search-info.js?v=' + Date.now();
+            s.defer = true;
+            document.body.appendChild(s);
+        })();
     </script>
+    <!-- <script src="/static/js/demo.js"></script> -->
 </body>
 
 </html>

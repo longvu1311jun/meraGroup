@@ -180,21 +180,24 @@ public class SearchService {
 
     for (JsonNode orderNode : dataNode) {
       int status = orderNode.path("status").asInt(0);
-      // Chỉ lấy đơn có status = 3
-      if (status == 3) {
-        OrderInfo orderInfo = new OrderInfo();
-        orderInfo.setBillPhoneNumber(extractPhone(orderNode.path("phone_numbers")));
-        orderInfo.setItems(parseOrderItemInfos(orderNode.path("items")));
-        orderInfo.setSystemId(asText(orderNode, "system_id"));
-        orderInfo.setStatus(status);
-        orderInfo.setTimeAssignSeller(asText(orderNode, "time_assign_seller"));
-        orderInfo.setAssigningSellerName(asText(orderNode.path("assigning_seller"), "name"));
-        String orderLink = asText(orderNode, "order_link");
-        orderInfo.setOrderLink(orderLink);
-        orderInfo.setOrderId(extractOrderIdFromLink(orderLink));
-
-        orders.add(orderInfo);
+      OrderInfo orderInfo = new OrderInfo();
+      orderInfo.setBillPhoneNumber(extractPhone(orderNode.path("phone_numbers")));
+      orderInfo.setItems(parseOrderItemInfos(orderNode.path("items")));
+      orderInfo.setSystemId(asText(orderNode, "system_id"));
+      orderInfo.setStatus(status);
+      orderInfo.setTimeAssignSeller(asText(orderNode, "time_assign_seller"));
+      orderInfo.setAssigningSellerName(asText(orderNode.path("assigning_seller"), "name"));
+      String orderLink = asText(orderNode, "order_link");
+      orderInfo.setOrderLink(orderLink);
+      orderInfo.setOrderId(extractOrderIdFromLink(orderLink));
+      // new fields: order source and assigning care
+      orderInfo.setOrderSourcesName(asText(orderNode, "order_sources_name"));
+      JsonNode assigningCareNode = orderNode.path("assigning_care");
+      if (assigningCareNode.isObject()) {
+        orderInfo.setAssigningCareName(asText(assigningCareNode, "name"));
       }
+
+      orders.add(orderInfo);
     }
     return orders;
   }

@@ -20,4 +20,6 @@ public class OrderInfo {
     private String assigningSellerName;
     private String orderId;
     private String orderLink;
+    private String orderSourcesName;
+    private String assigningCareName;
 }

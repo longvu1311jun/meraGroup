@@ -46,12 +46,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.client.RestTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.format.DateTimeFormatter;
+import java.time.ZoneId;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.util.HashMap;
 
@@ -423,6 +432,377 @@ public class authenController {
     }
 
     return ResponseEntity.ok(response);
+  }
+
+  @GetMapping("/api/exchanges")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> getExchanges(
+      @RequestParam("phone") String phone,
+      @RequestParam(value = "customerName", required = false) String customerName,
+      @RequestParam(value = "debug", required = false) Boolean debug,
+      HttpSession session) {
+    Map<String, Object> resp = new HashMap<>();
+    if (!tokenService.hasToken(session)) {
+      resp.put("error", "Vui lòng đăng nhập trước");
+      return ResponseEntity.status(401).body(resp);
+    }
+
+    try {
+      tokenService.autoRefreshTokenIfNeeded(session);
+      @SuppressWarnings("unchecked")
+      List<UserConfigDto> userConfigs = (List<UserConfigDto>) session.getAttribute(SESSION_USER_CONFIGS);
+      if (userConfigs == null || userConfigs.isEmpty()) {
+        loadAndCacheData(session, new org.springframework.ui.ExtendedModelMap());
+        userConfigs = (List<UserConfigDto>) session.getAttribute(SESSION_USER_CONFIGS);
+      }
+
+      // split into 4 parts (but use executorService with 5 threads)
+      int total = userConfigs.size();
+      int parts = Math.max(1, (total + 3) / 4);
+      List<List<UserConfigDto>> chunks = new ArrayList<>();
+      for (int i = 0; i < total; i += parts) {
+        chunks.add(userConfigs.subList(i, Math.min(i + parts, total)));
+      }
+      while (chunks.size() < 4) chunks.add(Collections.emptyList());
+
+      List<Map<String, Object>> allResults = Collections.synchronizedList(new ArrayList<>());
+      List<Object> rawItemsCollector = Collections.synchronizedList(new ArrayList<>());
+
+      List<CompletableFuture<Void>> futures = new ArrayList<>();
+      ObjectMapper mapper = new ObjectMapper();
+
+      for (List<UserConfigDto> chunk : chunks) {
+        if (chunk.isEmpty()) continue;
+        CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
+          for (UserConfigDto uc : chunk) {
+            try {
+              String baseId = uc.getBaseId();
+              String tableId = uc.getTraoDoiTableId();
+              if (baseId == null || baseId.isBlank() || tableId == null || tableId.isBlank()) continue;
+
+              String url = "https://open.larksuite.com/open-apis/bitable/v1/apps/" + baseId
+                  + "/tables/" + tableId + "/records/search?page_size=500";
+
+              Map<String, Object> body = new HashMap<>();
+              body.put("automatic_fields", false);
+              body.put("field_names", List.of("Khách Hàng", "Nội dung", "PhoneNumber"));
+              Map<String, Object> filter = new HashMap<>();
+              Map<String, Object> cond = new HashMap<>();
+              cond.put("field_name", "PhoneNumber");
+              cond.put("operator", "is");
+              cond.put("value", List.of(phone));
+              filter.put("conditions", List.of(cond));
+              filter.put("conjunction", "and");
+              body.put("filter", filter);
+              body.put("view_id", "vewNXdsB3K");
+
+              HttpHeaders headers = new HttpHeaders();
+              headers.setBearerAuth(tokenService.getAccessToken(session, false));
+              headers.setContentType(MediaType.APPLICATION_JSON);
+              HttpEntity<String> entity = new HttpEntity<>(mapper.writeValueAsString(body), headers);
+
+              RestTemplate rt = new RestTemplate();
+              ResponseEntity<String> r = rt.exchange(url, HttpMethod.POST, entity, String.class);
+              if (Boolean.TRUE.equals(debug)) {
+                try {
+                  log.info("Lark records/search raw response for baseId={} tableId={} status={}\n{}", uc.getBaseId(), uc.getTraoDoiTableId(), r.getStatusCodeValue(), r.getBody());
+                } catch (Exception le) {
+                  log.warn("Failed to log raw Lark response: {}", le.getMessage());
+                }
+              }
+              if (r.getStatusCode().is2xxSuccessful() && r.getBody() != null) {
+                Map<?, ?> json = mapper.readValue(r.getBody(), Map.class);
+                Map<?, ?> data = (Map<?, ?>) json.get("data");
+                if (data != null && data.get("items") instanceof List<?>) {
+                  List<?> items = (List<?>) data.get("items");
+                  for (Object it : items) {
+                    if (!(it instanceof Map)) continue;
+                    Map<?, ?> item = (Map<?, ?>) it;
+                    // collect raw item for debug if needed
+                    rawItemsCollector.add(item);
+                    Map<?, ?> fields = (Map<?, ?>) item.get("fields");
+                    if (fields == null) continue;
+                    // extract content text
+                    String content = "";
+                    Object noidung = fields.get("Nội dung");
+                    if (noidung instanceof List<?> l && !l.isEmpty()) {
+                      Object first = l.get(0);
+                      if (first instanceof Map<?, ?> m && m.get("text") != null) content = String.valueOf(m.get("text"));
+                      else content = String.valueOf(first);
+                    }
+                    // customer name: use provided customerName or empty
+                    String custName = customerName != null ? customerName : "";
+                    // createdAt
+                    Object ngay = fields.get("Ngày");
+                    Object createdAtValue = null;
+                    if (ngay instanceof Number) {
+                      createdAtValue = ((Number) ngay).longValue(); // keep timestamp (ms) as number
+                    } else if (ngay != null) {
+                      // keep original value (string) — frontend will attempt to parse/format
+                      createdAtValue = String.valueOf(ngay);
+                    }
+                    // Preserve original "Ngày" field in response (do not lose key)
+                    Object ngayRawForResponse = ngay;
+                    // debug logging
+                    try {
+                      if (log.isDebugEnabled()) {
+                        String fieldsJson = mapper.writeValueAsString(fields);
+                        log.debug("Exchange raw fields: baseId={} tableId={} fields={}", uc.getBaseId(), uc.getTraoDoiTableId(), fieldsJson);
+                        log.debug("Parsed exchange: content='{}' ngay_raw='{}' createdAtValue='{}'", content, ngay, createdAtValue);
+                      }
+                    } catch (Exception le) {
+                      log.debug("Could not serialize exchange fields for debug: {}", le.getMessage());
+                    }
+                    Map<String, Object> rec = new HashMap<>();
+                    rec.put("content", content);
+                    rec.put("customerName", custName);
+                    rec.put("createdAt", createdAtValue);
+                    // include original "Ngày" value under key "Ngày" so frontend can use it directly
+                    rec.put("Ngày", ngayRawForResponse);
+                    // include source table info so frontend can create back into the same table
+                    rec.put("baseId", baseId);
+                    rec.put("tableId", tableId);
+                    // extract Khách Hàng link ids if present
+                    List<String> linkIds = new ArrayList<>();
+                    Object khField = fields.get("Khách Hàng");
+                    if (khField instanceof Map<?, ?> khMap) {
+                      Object lrr = khMap.get("link_record_ids");
+                      if (lrr instanceof List<?>) {
+                        for (Object o : (List<?>) lrr) linkIds.add(String.valueOf(o));
+                      }
+                    } else if (khField instanceof List<?>) {
+                      for (Object o : (List<?>) khField) linkIds.add(String.valueOf(o));
+                    } else if (khField != null) {
+                      linkIds.add(String.valueOf(khField));
+                    }
+                    rec.put("linkRecordIds", linkIds);
+                    allResults.add(rec);
+                  }
+                }
+              }
+            } catch (Exception ex) {
+              log.warn("Error fetching exchanges for baseId/tableId {} / {} : {}", uc.getBaseId(), uc.getTraoDoiTableId(), ex.getMessage());
+            }
+          }
+        }, executorService);
+        futures.add(f);
+      }
+
+      CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(60, TimeUnit.SECONDS);
+
+      resp.put("code", 0);
+      resp.put("data", allResults);
+      // always include raw items for debugging purposes
+      resp.put("rawItems", rawItemsCollector);
+      resp.put("msg", "ok");
+      return ResponseEntity.ok(resp);
+    } catch (Exception e) {
+      log.error("Error in /api/exchanges: {}", e.getMessage(), e);
+      resp.put("error", e.getMessage());
+      return ResponseEntity.status(500).body(resp);
+    }
+  }
+
+  /**
+   * Search records in a specific Bitable table by phone number.
+   * Accepts baseId, tableId, phone (and optional viewId) as request parameters.
+   * Returns normalized list of exchanges with fields: content, createdAt, phone, linkRecordIds, Ngày (raw).
+   */
+  @PostMapping("/api/lark/search-by-table")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> searchByTable(
+      @RequestParam("baseId") String baseId,
+      @RequestParam("tableId") String tableId,
+      @RequestParam("phone") String phone,
+      @RequestParam(value = "viewId", required = false) String viewId,
+      HttpSession session) {
+    Map<String, Object> resp = new HashMap<>();
+    if (!tokenService.hasToken(session)) {
+      resp.put("error", "Vui lòng đăng nhập trước");
+      return ResponseEntity.status(401).body(resp);
+    }
+    try {
+      tokenService.autoRefreshTokenIfNeeded(session);
+      ObjectMapper mapper = new ObjectMapper();
+      RestTemplate rt = new RestTemplate();
+
+      String url = "https://open.larksuite.com/open-apis/bitable/v1/apps/" + baseId
+          + "/tables/" + tableId + "/records/search?page_size=500";
+
+      Map<String, Object> body = new HashMap<>();
+      body.put("automatic_fields", false);
+      body.put("field_names", List.of("Khách Hàng", "Nội dung", "PhoneNumber", "Ngày"));
+      Map<String, Object> filter = new HashMap<>();
+      Map<String, Object> cond = new HashMap<>();
+      cond.put("field_name", "PhoneNumber");
+      cond.put("operator", "is");
+      cond.put("value", List.of(phone));
+      filter.put("conditions", List.of(cond));
+      filter.put("conjunction", "and");
+      body.put("filter", filter);
+      if (viewId != null && !viewId.isBlank()) body.put("view_id", viewId);
+
+      HttpHeaders headers = new HttpHeaders();
+      headers.setBearerAuth(tokenService.getAccessToken(session, false));
+      headers.setContentType(MediaType.APPLICATION_JSON);
+      HttpEntity<String> entity = new HttpEntity<>(mapper.writeValueAsString(body), headers);
+
+      ResponseEntity<String> r = rt.postForEntity(url, entity, String.class);
+      if (!r.getStatusCode().is2xxSuccessful() || r.getBody() == null) {
+        resp.put("error", "Lark search failed: " + r.getStatusCodeValue());
+        return ResponseEntity.status(500).body(resp);
+      }
+
+      Map<?, ?> json = mapper.readValue(r.getBody(), Map.class);
+      Map<?, ?> data = (Map<?, ?>) json.get("data");
+      List<Map<String, Object>> results = new ArrayList<>();
+      List<Object> rawItemsCollector = new ArrayList<>();
+      if (data != null && data.get("items") instanceof List<?>) {
+        List<?> items = (List<?>) data.get("items");
+        for (Object it : items) {
+          if (!(it instanceof Map)) continue;
+          Map<?, ?> item = (Map<?, ?>) it;
+          rawItemsCollector.add(item);
+          Map<?, ?> fields = (Map<?, ?>) item.get("fields");
+          if (fields == null) continue;
+
+          // extract content
+          String content = "";
+          Object noidung = fields.get("Nội dung");
+          if (noidung instanceof List<?> l && !l.isEmpty()) {
+            Object first = l.get(0);
+            if (first instanceof Map<?, ?> m && m.get("text") != null) content = String.valueOf(m.get("text"));
+            else content = String.valueOf(first);
+          } else if (noidung != null) {
+            content = String.valueOf(noidung);
+          }
+
+          // createdAt / Ngày
+          Object ngay = fields.get("Ngày");
+          Object createdAtValue = null;
+          if (ngay instanceof Number) {
+            createdAtValue = ((Number) ngay).longValue();
+          } else if (ngay != null) {
+            createdAtValue = String.valueOf(ngay);
+          }
+
+          // phone
+          String parsedPhone = "";
+          Object phoneObj = fields.get("PhoneNumber");
+          try {
+            if (phoneObj instanceof Map<?, ?> p && p.get("value") instanceof List<?>) {
+              List<?> vals = (List<?>) p.get("value");
+              if (!vals.isEmpty()) parsedPhone = String.valueOf(vals.get(0));
+            } else if (phoneObj instanceof List<?>) {
+              List<?> vals = (List<?>) phoneObj;
+              if (!vals.isEmpty()) parsedPhone = String.valueOf(vals.get(0));
+            } else if (phoneObj != null) {
+              parsedPhone = String.valueOf(phoneObj);
+            }
+          } catch (Exception ex) {
+            // ignore parsing issues
+          }
+
+          // Khách Hàng -> link_record_ids
+          List<String> linkIds = new ArrayList<>();
+          Object kh = fields.get("Khách Hàng");
+          if (kh instanceof Map<?, ?> khm) {
+            Object lrr = khm.get("link_record_ids");
+            if (lrr instanceof List<?>) {
+              for (Object o : (List<?>) lrr) linkIds.add(String.valueOf(o));
+            }
+          } else if (kh instanceof List<?>) {
+            for (Object o : (List<?>) kh) linkIds.add(String.valueOf(o));
+          } else if (kh != null) {
+            linkIds.add(String.valueOf(kh));
+          }
+
+          Map<String, Object> rec = new HashMap<>();
+          rec.put("content", content);
+          rec.put("createdAt", createdAtValue);
+          rec.put("phone", parsedPhone);
+          rec.put("baseId", baseId);
+          rec.put("tableId", tableId);
+          rec.put("linkRecordIds", linkIds);
+          rec.put("Ngày", ngay);
+          results.add(rec);
+        }
+      }
+
+      resp.put("code", 0);
+      resp.put("data", results);
+      resp.put("rawItems", rawItemsCollector);
+      resp.put("msg", "ok");
+      return ResponseEntity.ok(resp);
+    } catch (Exception e) {
+      log.error("Error in /api/lark/search-by-table: {}", e.getMessage(), e);
+      resp.put("error", e.getMessage());
+      return ResponseEntity.status(500).body(resp);
+    }
+  }
+
+  /**
+   * Create a new record in a specified Bitable table.
+   * Expects JSON body: { "content": "...", "ngay": 176..., "linkRecordIds": ["recv..."] }
+   */
+  @PostMapping("/api/lark/create-record")
+  @ResponseBody
+  @SuppressWarnings("unchecked")
+  public ResponseEntity<Map<String, Object>> createLarkRecord(
+      @RequestParam("baseId") String baseId,
+      @RequestParam("tableId") String tableId,
+      @RequestBody Map<String, Object> reqBody,
+      HttpSession session) {
+    Map<String, Object> resp = new HashMap<>();
+    if (!tokenService.hasToken(session)) {
+      resp.put("error", "Vui lòng đăng nhập trước");
+      return ResponseEntity.status(401).body(resp);
+    }
+    try {
+      tokenService.autoRefreshTokenIfNeeded(session);
+      ObjectMapper mapper = new ObjectMapper();
+      RestTemplate rt = new RestTemplate();
+
+      String url = "https://open.larksuite.com/open-apis/bitable/v1/apps/" + baseId
+          + "/tables/" + tableId + "/records?user_id_type=union_id";
+
+      String content = reqBody.get("content") == null ? "" : String.valueOf(reqBody.get("content"));
+      Object ngay = reqBody.get("ngay");
+      List<String> linkIds = new ArrayList<>();
+      Object linksObj = reqBody.get("linkRecordIds");
+      if (linksObj instanceof List<?>) {
+        for (Object o : (List<?>) linksObj) linkIds.add(String.valueOf(o));
+      } else if (linksObj != null) {
+        linkIds.add(String.valueOf(linksObj));
+      }
+
+      Map<String, Object> body = new HashMap<>();
+      Map<String, Object> fields = new HashMap<>();
+      fields.put("Nội dung", content);
+      if (ngay != null) fields.put("Ngày", ngay);
+      fields.put("Khách Hàng", linkIds);
+      body.put("fields", fields);
+
+      HttpHeaders headers = new HttpHeaders();
+      headers.setBearerAuth(tokenService.getAccessToken(session, false));
+      headers.setContentType(MediaType.APPLICATION_JSON);
+      HttpEntity<String> entity = new HttpEntity<>(mapper.writeValueAsString(body), headers);
+
+      ResponseEntity<String> r = rt.postForEntity(url, entity, String.class);
+      if (!r.getStatusCode().is2xxSuccessful() || r.getBody() == null) {
+        resp.put("error", "Lark create failed: " + r.getStatusCodeValue());
+        return ResponseEntity.status(500).body(resp);
+      }
+      Map<?, ?> created = mapper.readValue(r.getBody(), Map.class);
+      resp.put("code", 0);
+      resp.put("data", created);
+      resp.put("msg", "ok");
+      return ResponseEntity.ok(resp);
+    } catch (Exception e) {
+      log.error("Error in /api/lark/create-record: {}", e.getMessage(), e);
+      resp.put("error", e.getMessage());
+      return ResponseEntity.status(500).body(resp);
+    }
   }
 
   @PostMapping("/stats/refresh")

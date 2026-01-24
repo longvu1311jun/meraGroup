@@ -91,6 +91,35 @@
             </div>
       `;
       if (customerCard) customerCard.style.display = 'block';
+      // copy button handler: copy phone to clipboard
+      try {
+        const copyBtn = customerInfo.querySelector('button');
+        if (copyBtn) {
+          copyBtn.addEventListener('click', () => {
+            try {
+              const phoneEl = customerInfo.querySelector('.font-bold.text-slate-700');
+              const phoneText = phoneEl ? phoneEl.textContent.trim() : (customer.phone || '');
+              if (!phoneText) { alert('Không có số điện thoại để copy'); return; }
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(phoneText).then(() => {
+                  // small feedback: change button temporarily
+                  const original = copyBtn.innerHTML;
+                  copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i> Đã copy';
+                  setTimeout(() => { copyBtn.innerHTML = original; }, 1200);
+                }).catch(() => { alert('Không thể copy số điện thoại'); });
+              } else {
+                // fallback
+                const ta = document.createElement('textarea');
+                ta.value = phoneText;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); alert('Đã copy'); } catch (e) { alert('Không thể copy số điện thoại'); }
+                document.body.removeChild(ta);
+              }
+            } catch (e) { console.warn('Copy failed', e); alert('Không thể copy số điện thoại'); }
+          });
+        }
+      } catch (e) {}
     }
   }
 
@@ -146,32 +175,11 @@
       if (ordersWrap) ordersWrap.innerHTML = '<span class="text-slate-400 text-sm">Không có dữ liệu</span>';
       return;
     }
-    const totalOrders = orders.length;
-    // Aggregate purchased product counts for orders with status = 3 (Đã nhận)
-    const receivedOrders = (orders || []).filter(o => {
+    // Count orders excluding canceled (status === 6)
+    const visibleOrdersCount = (orders || []).filter(o => {
       const s = (typeof o.status === 'number') ? o.status : (o.status ? Number(o.status) : null);
-      return s === 3;
-    });
-    const productCounts = {};
-    receivedOrders.forEach(o => {
-      (o.items || []).forEach(it => {
-        const name = it.name || it.product_name || it.productName || 'Unknown';
-        const qty = Number(it.quantity || 0);
-        productCounts[name] = (productCounts[name] || 0) + qty;
-      });
-    });
-
-    let summaryHtml = '';
-    const productKeys = Object.keys(productCounts);
-    if (productKeys.length > 0) {
-      const rows = productKeys.map(k => `<li class="text-sm text-slate-600">${escapeHtml(k)} — <strong>${productCounts[k]}</strong></li>`).join('');
-      summaryHtml = `
-        <div class="p-3 mb-3 bg-white rounded border border-slate-100">
-          <h4 class="font-bold text-sm mb-2">Tổng hợp sản phẩm đã mua (Đã nhận)</h4>
-          <ul class="list-disc pl-5 space-y-1">${rows}</ul>
-        </div>
-      `;
-    }
+      return s !== 6;
+    }).length;
 
     let html = `
     <div class="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden">
@@ -179,10 +187,9 @@
             <h3 class="font-bold text-lg text-slate-800">
                 <i class="fa-solid fa-box-open text-brand-500 mr-2"></i>Lịch sử mua hàng
             </h3>
-            <span class="text-sm text-slate-400 font-medium">${totalOrders} đơn hàng</span>
+            <span class="text-sm text-slate-400 font-medium">${visibleOrdersCount} đơn hàng</span>
         </div>
         <div class="p-3 space-y-3 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
-        ${summaryHtml}
     `;
     orders.forEach(o => {
       // ==== Status mapping ====
@@ -250,7 +257,7 @@
                                 `<a href="https://pos.pages.fm/shop/1546758/order?order_id=${encodeURIComponent(o.orderId)}" target="_blank" rel="noopener noreferrer">${escapeHtml(o.orderId)}</a>`) : '-'}</div>
                     <h4 class="font-bold text-slate-800 text-base">${dateTime}</h4>
                     <div class="mt-1">
-                      <button data-order-id="${escapeHtml(o.orderId)}" class="order-open text-sm text-brand-600 hover:underline">Chi tiết</button>
+<!--                      <button data-order-id="${escapeHtml(o.orderId)}" class="order-open text-sm text-brand-600 hover:underline">Chi tiết</button>-->
                     </div>
                 </div>
                 <span class="text-xs px-2 py-0.5 rounded border font-bold ${statusClass}">
@@ -274,68 +281,7 @@
     if (ordersWrap) ordersWrap.innerHTML = html;
   }
 
-  function renderNotes(notes) {
-    console.log('render notes', notes);
-    if (!notes || notes.length === 0) {
-      if (notesWrap) notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
-      return;
-    }
-    let html = `<div class="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden" >
-      <div class="px-5 py-3 border-b border-slate-100 bg-white sticky top-0 z-10">
-        <h3 class="font-bold text-lg text-slate-800"><i class="fa-regular fa-comments text-brand-500 mr-2"></i>Nhật ký chăm sóc</h3>
-      </div>
-      <div class="p-4 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
-        <div class="relative timeline-line space-y-6 pl-2">
-        `;
-    notes.forEach(n => {
-      if (n.length === 0) {
-        html += `<span class="text-slate-400 text-sm">Khách hàng chưa có note</span>`;
-      } else {
-        html += `  <div class="relative pl-8">
-          <div class="absolute left-0 top-1 w-7 h-7 bg-white border-2 border-brand-500 rounded-full flex items-center justify-center z-10 shadow-sm">
-            <i class="fa-solid fa-check text-brand-500 text-xs"></i>
-          </div>  <div>
-            ${(() => {
-              // try to find matching order to get date
-              const match = lastOrders.find(o => String(o.orderId) === String(n.orderId) || String(o.systemId) === String(n.orderId));
-              return `<span class="text-xs text-slate-400 font-bold uppercase tracking-wider">${match ? formatDate(match.timeAssignSeller) : escapeHtml(n.orderId || '-')}</span>`;
-            })()}
-            <div class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm mt-1 group hover:border-brand-200 transition">
-              <p class="text-slate-800 text-base font-medium">${escapeHtml(n.message || '-')}</p>
-              <p class="text-xs text-slate-400 mt-1">${escapeHtml(n.orderId || '-')}</p>
-            </div>
-          </div> </div>`;
-      };
-    });
-    html += `
-        </div>
-      </div>
-    </div>`;
-    if (notesWrap) notesWrap.innerHTML = html;
-    // Also populate modal content if present
-    try {
-      const notesModalContent = document.getElementById('notesModalContent');
-      if (notesModalContent) notesModalContent.innerHTML = html;
-    } catch (e) {}
-    // Move any leftover "Trao đổi" block from left column into right conversationsWrap
-    try {
-      const convWrap = document.getElementById('conversationsWrap') || document.getElementById('conversationsList');
-      if (convWrap) {
-        const candidates = Array.from(document.querySelectorAll('div')).filter(el => {
-          const t = (el.textContent || '').trim();
-          return t === 'Trao đổi' || t.startsWith('Trao đổi');
-        });
-        candidates.forEach(el => {
-          // find the nearest container box to move (rounded box)
-          let box = el.closest && el.closest('.bg-white, .rounded-xl');
-          if (!box) box = el;
-          if (box && !convWrap.contains(box)) {
-            try { convWrap.appendChild(box); console.log('Moved existing Trao đổi block to right'); } catch(e){}
-          }
-        });
-      }
-    } catch (e) {}
-  }
+  // Notes section removed per UI request (we only display 'Trao đổi' now)
 
   function renderConversations(conversations) {
     const list = document.getElementById('conversationsList') || document.getElementById('conversationsWrap') || document.getElementById('conversationsList');
@@ -364,8 +310,13 @@
       alert('Vui lòng nhập số điện thoại hợp lệ');
       return;
     }
-    // show main grid and hide empty state when searching
-    try { const mainGrid = document.getElementById('mainGrid'); const emptyState = document.getElementById('emptyState'); if (mainGrid) mainGrid.classList.remove('hidden'); if (emptyState) emptyState.style.display = 'none'; } catch(e) {}
+    // Hide main panels while searching; we'll show them only after customer/orders are loaded
+    try {
+      const mainGrid = document.getElementById('mainGrid');
+      const emptyState = document.getElementById('emptyState');
+      if (mainGrid) mainGrid.classList.add('hidden');
+      if (emptyState) emptyState.style.display = 'none';
+    } catch (e) {}
     if (phoneInput) phoneInput.value = phone;
     // show loading overlay
     showLoading(true);
@@ -376,31 +327,44 @@
       const res = await fetch(`/api/search-info?phone=${encodeURIComponent(phone)}`);
       const data = await res.json();
       if (!res.ok || data.error || data.message) {
-        alert(data.error || data.message || 'Không thể tra cứu');
-        if (customerCard) customerCard.style.display = 'none';
-        if (ordersWrap) ordersWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
-        if (notesWrap) notesWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>';
+        // Nếu không tìm thấy khách hàng, quay về trạng thái empty (như trước khi tìm)
+        try {
+          const mainGrid = document.getElementById('mainGrid');
+          const emptyState = document.getElementById('emptyState');
+          if (mainGrid) mainGrid.classList.add('hidden');
+          if (emptyState) emptyState.style.display = 'flex';
+        } catch (e) {}
+        // clear panels
+        try { if (customerCard) customerCard.style.display = 'none'; } catch(e) {}
+        try { if (ordersWrap) ordersWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>'; } catch(e) {}
+        try { const convListEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap'); if (convListEl) convListEl.innerHTML = '<span class="muted">Không có trao đổi</span>'; } catch(e) {}
         return;
       }
       renderCustomer(data.customer);
       renderOrders(data.orders);
-      renderNotes(data.customer ? data.customer.notes : []);
-      // fetch trao đổi: ưu tiên gọi bảng cụ thể nếu baseId/tableId có sẵn (từ URL params hoặc global),
-      // ngược lại fallback sang /api/exchanges (hiện tại server-side aggregate)
+      // show main grid now that customer & orders are rendered
+      try { const mainGrid = document.getElementById('mainGrid'); const emptyState = document.getElementById('emptyState'); if (mainGrid) mainGrid.classList.remove('hidden'); if (emptyState) emptyState.style.display = 'none'; } catch(e) {}
+      // show loading indicator for exchanges area while we fetch them
+      try {
+        const convListEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap');
+        if (convListEl) convListEl.innerHTML = `<div class="p-4 flex items-center justify-center text-sm text-slate-500"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Đang tải trao đổi...</div>`;
+      } catch (e) {}
+      // Hide global overlay now that customer/orders are visible;
+      // exchanges will show their own inline spinner.
+      try { showLoading(false); } catch (e) {}
+      // sequentially fetch exchanges after customer/orders are rendered
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const baseIdParam = urlParams.get('baseId') || window._preferredBaseId || '';
         const tableIdParam = urlParams.get('tableId') || window._preferredTableId || '';
-
         if (baseIdParam && tableIdParam) {
-          // call our new endpoint (POST with query params)
           const convRes = await fetch(`/api/lark/search-by-table?baseId=${encodeURIComponent(baseIdParam)}&tableId=${encodeURIComponent(tableIdParam)}&phone=${encodeURIComponent(phone)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
           });
           const convJson = await convRes.json();
           console.log('[/api/lark/search-by-table] response:', { ok: convRes.ok, status: convRes.status, body: convJson });
-          if (convRes.ok && convJson && convJson.data) {
+          if (convRes.ok && convJson && convJson.data && convJson.data.length > 0) {
             const mapped = convJson.data.map(c => ({
               content: c.content,
               name: c.customerName || '',
@@ -417,16 +381,20 @@
             const convRes2 = await fetch(`/api/exchanges?phone=${encodeURIComponent(phone)}&customerName=${encodeURIComponent(data.customer ? data.customer.name : '')}`);
             const convJson2 = await convRes2.json();
             console.log('[/api/exchanges] fallback response:', { ok: convRes2.ok, status: convRes2.status, body: convJson2 });
-            if (convRes2.ok && convJson2 && convJson2.data) {
-              const mapped2 = convJson2.data.map(c => ({ content: c.content, name: c.customerName || '', createdAt: c.createdAt, baseId: c.baseId, tableId: c.tableId, linkRecordIds: c.linkRecordIds || [] }));
-              window._lastExchangeContext = mapped2.length ? mapped2[0] : null;
-              renderConversations(mapped2);
+            if (convRes2.ok) {
+              if (convJson2 && convJson2.data && convJson2.data.length > 0) {
+                const mapped2 = convJson2.data.map(c => ({ content: c.content, name: c.customerName || '', createdAt: c.createdAt, baseId: c.baseId, tableId: c.tableId, linkRecordIds: c.linkRecordIds || [] }));
+                window._lastExchangeContext = mapped2.length ? mapped2[0] : null;
+                renderConversations(mapped2);
+              } else {
+                // no exchanges found
+                window._lastExchangeContext = null;
+                renderConversations([]);
+              }
             } else {
-              const sampleConvos = [
-                { content: 'Khách hỏi về thuốc A, đã tư vấn', name: data.customer ? data.customer.name : 'Khách lạ', createdAt: Date.now() - 86400000 },
-                { content: 'CSKH đã gọi và xác nhận đơn', name: 'CSKH Nguyễn', createdAt: Date.now() - 3600000 }
-              ];
-              renderConversations(sampleConvos);
+              // server error when fetching aggregate exchanges
+              const listEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap');
+              if (listEl) listEl.innerHTML = `<span class="text-red-500 text-sm">Lỗi khi tải trao đổi: ${convRes2.status}</span>`;
             }
           }
         } else {
@@ -440,20 +408,20 @@
             window._lastExchangeContext = mapped.length ? mapped[0] : null;
             renderConversations(mapped);
           } else {
-            const sampleConvos = [
-              { content: 'Khách hỏi về thuốc A, đã tư vấn', name: data.customer ? data.customer.name : 'Khách lạ', createdAt: Date.now() - 86400000 },
-              { content: 'CSKH đã gọi và xác nhận đơn', name: 'CSKH Nguyễn', createdAt: Date.now() - 3600000 }
-            ];
-            renderConversations(sampleConvos);
+            if (convRes.ok) {
+              // ok but no data
+              window._lastExchangeContext = null;
+              renderConversations([]);
+            } else {
+              const listEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap');
+              if (listEl) listEl.innerHTML = `<span class="text-red-500 text-sm">Lỗi khi tải trao đổi: ${convRes.status}</span>`;
+            }
           }
         }
       } catch (e) {
-        console.warn('Exchange fetch error, showing samples', e);
-        const sampleConvos = [
-          { content: 'Khách hỏi về thuốc A, đã tư vấn', name: data.customer ? data.customer.name : 'Khách lạ', createdAt: Date.now() - 86400000 },
-          { content: 'CSKH đã gọi và xác nhận đơn', name: 'CSKH Nguyễn', createdAt: Date.now() - 3600000 }
-        ];
-        renderConversations(sampleConvos);
+        console.warn('Exchange fetch error', e);
+        const listEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap');
+        if (listEl) listEl.innerHTML = `<span class="text-red-500 text-sm">Lỗi khi tải trao đổi</span>`;
       }
     } catch (err) {
       console.error(err);
@@ -555,48 +523,7 @@
         }
       });
     }
-    // notes toggle: collapsed by default
-    try {
-      const notesToggle = document.getElementById('notesToggle');
-      const notesWrapEl = document.getElementById('notesWrap');
-      if (notesToggle && notesWrapEl) {
-        // keep inline notes hidden; use modal to show notes
-        notesWrapEl.classList.add('hidden');
-        notesToggle.textContent = 'Mở';
-        const notesModal = document.getElementById('notesModal');
-        const notesModalClose = document.getElementById('notesModalClose');
-        const notesModalOverlay = document.getElementById('notesModalOverlay');
-        const notesHeader = document.getElementById('notesHeader');
-        function openNotesModal() {
-          // ensure modal content is up-to-date (renderNotes already populates it)
-          if (notesModal) {
-            notesModal.classList.remove('hidden');
-            notesModal.classList.add('flex');
-          }
-          notesToggle.textContent = 'Ẩn';
-        }
-        function closeNotesModal() {
-          if (notesModal) {
-            notesModal.classList.add('hidden');
-            notesModal.classList.remove('flex');
-          }
-          notesToggle.textContent = 'Mở';
-        }
-        notesToggle.addEventListener('click', () => {
-          const visible = !(notesModal && notesModal.classList.contains('hidden'));
-          if (visible) closeNotesModal(); else openNotesModal();
-        });
-        if (notesHeader) {
-          notesHeader.addEventListener('click', (ev) => {
-            // if clicked the toggle button, ignore (button handler covers)
-            if (ev.target && ev.target.closest && ev.target.closest('#notesToggle')) return;
-            openNotesModal();
-          });
-        }
-        if (notesModalClose) notesModalClose.addEventListener('click', closeNotesModal);
-        if (notesModalOverlay) notesModalOverlay.addEventListener('click', closeNotesModal);
-      }
-    } catch (e) {}
+    // Notes section removed from UI by request; only "Trao đổi" remains.
   // Exchange add modal handlers
   try {
     const exchangeModal = document.getElementById('exchangeModal');

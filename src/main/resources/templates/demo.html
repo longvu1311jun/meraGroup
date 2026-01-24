@@ -137,15 +137,9 @@
             </div>
             <!-- Lịch sử mua hàng -->
             <div id="ordersWrap"></div>
-            <!-- Nhật ký chăm sóc (collapsed by default) -->
-            <div id="notesContainer" class="flex flex-col gap-2">
-                <div id="notesHeader" class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 flex items-center justify-between cursor-pointer">
-                    <div class="font-bold text-slate-700">Nhật ký chăm sóc</div>
-                    <button id="notesToggle" class="text-sm text-brand-600 bg-brand-50 px-3 py-1 rounded">Mở</button>
-                </div>
-                <div id="notesWrap" class="hidden"></div>
-                <!-- Trao đổi (hiển thị luôn) - nằm trong cùng thẻ với Nhật ký -->
-                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mt-2">
+            <!-- Trao đổi -->
+            <div class="flex flex-col gap-2">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3">
                     <div class="flex items-center justify-between mb-2">
                         <div class="font-bold text-slate-700">Trao đổi</div>
                         <button id="exchangeAddBtn" class="text-sm text-white bg-brand-600 px-3 py-1 rounded">Thêm mới</button>
@@ -176,19 +170,7 @@
             </div>
         </div>
     </div>
-    <!-- Notes modal -->
-    <div id="notesModal" class="fixed inset-0 hidden items-center justify-center z-50">
-        <div class="absolute inset-0 bg-black/40" id="notesModalOverlay"></div>
-        <div class="bg-white rounded-lg shadow-lg w-[760px] max-w-[95%] relative z-10">
-            <div class="px-5 py-3 border-b flex items-center justify-between">
-                <h3 class="font-bold">Nhật ký chăm sóc</h3>
-                <button id="notesModalClose" class="text-slate-500 hover:text-slate-700">Đóng ✕</button>
-            </div>
-            <div class="p-5" id="notesModalContent" style="max-height:70vh; overflow:auto;">
-                <!-- notes rendered here -->
-            </div>
-        </div>
-    </div>
+    <!-- Notes feature removed from UI -->
     <!-- Exchange add modal -->
     <div id="exchangeModal" class="fixed inset-0 hidden items-center justify-center z-50">
         <div class="absolute inset-0 bg-black/40" id="exchangeModalOverlay"></div>

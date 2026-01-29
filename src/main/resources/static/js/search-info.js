@@ -20,6 +20,8 @@
   const loadingOverlay = document.getElementById('loadingOverlay');
   let lastOrders = [];
   let lastCustomer = null;
+  const emptyStateEl = document.getElementById('emptyState');
+  const DEFAULT_EMPTY_TEXT = emptyStateEl ? emptyStateEl.textContent.trim() : 'Nhập số điện thoại để tìm kiếm thông tin khách hàng';
   const STATUS_MAP = {
     0: 'Mới',
     17: 'Chờ xác nhận',
@@ -48,7 +50,9 @@
     if (!str) return '-';
     const date = new Date(str);
     if (isNaN(date.getTime())) return str;
-    return date.toLocaleString('vi-VN');
+    // Adjust to +7 hours (UTC+7) before formatting
+    const adjusted = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+    return adjusted.toLocaleString('vi-VN');
   }
 
   function escapeHtml(s) { return (s == null) ? '' : String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
@@ -303,6 +307,32 @@
     list.innerHTML = html;
   }
 
+  // Render POS notes (from SearchService -> customer.notes)
+  function renderPosNotes(notes) {
+    const wrap = document.getElementById('posNotesList');
+    if (!wrap) return;
+    try {
+      if (!notes || !Array.isArray(notes) || notes.length === 0) {
+        wrap.innerHTML = '<span class="text-slate-400">Chưa có ghi chú</span>';
+        return;
+      }
+      const html = notes.map(n => {
+        const message = (n.message || n.msg || n.content || '').toString();
+        const orderId = (n.order_id || n.orderId || '') ? `<div class="text-xs text-slate-400 mt-1">${escapeHtml(String(n.order_id || n.orderId || ''))}</div>` : '';
+        const created = n.created_at || n.createdAt || n.Ngày || '';
+        const createdText = created ? ` • ${escapeHtml(String(created))}` : '';
+        return `<div class="bg-white p-2 rounded border border-slate-100 mb-2">
+            <div class="text-sm text-slate-700">${escapeHtml(message)}</div>
+            <div class="text-xs text-slate-400 mt-1"> ${escapeHtml(n.createdBy || n.created_by || '')}${createdText}</div>
+            ${orderId}
+          </div>`;
+      }).join('');
+      wrap.innerHTML = `<div class="flex flex-col">${html}</div>`;
+    } catch (e) {
+      wrap.innerHTML = '<span class="text-red-500 text-sm">Lỗi khi hiển thị ghi chú</span>';
+    }
+  }
+
   async function doSearch() {
     console.log(phoneInput ? phoneInput.value : 'no input');
     const phone = sanitizePhone(phoneInput ? phoneInput.value : '');
@@ -327,22 +357,63 @@
       const res = await fetch(`/api/search-info?phone=${encodeURIComponent(phone)}`);
       const data = await res.json();
       if (!res.ok || data.error || data.message) {
-        // Nếu không tìm thấy khách hàng, quay về trạng thái empty (như trước khi tìm)
+        // show single-line not found message and hide panels
         try {
           const mainGrid = document.getElementById('mainGrid');
           const emptyState = document.getElementById('emptyState');
           if (mainGrid) mainGrid.classList.add('hidden');
-          if (emptyState) emptyState.style.display = 'flex';
+          if (emptyState) {
+            emptyState.textContent = 'Không tìm thấy thông tin khách hàng';
+            emptyState.style.display = 'flex';
+          }
         } catch (e) {}
         // clear panels
         try { if (customerCard) customerCard.style.display = 'none'; } catch(e) {}
-        try { if (ordersWrap) ordersWrap.innerHTML = '<span class="muted">Không có dữ liệu</span>'; } catch(e) {}
-        try { const convListEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap'); if (convListEl) convListEl.innerHTML = '<span class="muted">Không có trao đổi</span>'; } catch(e) {}
+        try { if (ordersWrap) ordersWrap.innerHTML = ''; } catch(e) {}
+        try { const convListEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap'); if (convListEl) convListEl.innerHTML = ''; } catch(e) {}
         return;
       }
+      // If API returned but no customer data or customer fields empty -> treat as not found
+      if (!data || !data.customer) {
+        try {
+          const mainGrid = document.getElementById('mainGrid');
+          const emptyState = document.getElementById('emptyState');
+          if (mainGrid) mainGrid.classList.add('hidden');
+          if (emptyState) {
+            emptyState.textContent = 'Không tìm thấy thông tin khách hàng';
+            emptyState.style.display = 'flex';
+          }
+        } catch (e) {}
+        try { if (customerCard) customerCard.style.display = 'none'; } catch(e) {}
+        try { if (ordersWrap) ordersWrap.innerHTML = ''; } catch(e) {}
+        try { const convListEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap'); if (convListEl) convListEl.innerHTML = ''; } catch(e) {}
+        return;
+      }
+      // also consider customer empty if no id/name/phone present
+      try {
+        const cust = data.customer || {};
+        const hasCustomerInfo = (cust.customerId && String(cust.customerId).trim()) || (cust.name && String(cust.name).trim()) || (cust.phone && String(cust.phone).trim());
+        if (!hasCustomerInfo) {
+          const mainGrid = document.getElementById('mainGrid');
+          const emptyState = document.getElementById('emptyState');
+          if (mainGrid) mainGrid.classList.add('hidden');
+          if (emptyState) {
+            emptyState.textContent = 'Không tìm thấy thông tin khách hàng';
+            emptyState.style.display = 'flex';
+          }
+          try { if (customerCard) customerCard.style.display = 'none'; } catch(e) {}
+          try { if (ordersWrap) ordersWrap.innerHTML = ''; } catch(e) {}
+          try { const convListEl = document.getElementById('conversationsList') || document.getElementById('conversationsWrap'); if (convListEl) convListEl.innerHTML = ''; } catch(e) {}
+          return;
+        }
+      } catch (e) {}
+      // restore default emptyState text
+      try { if (emptyStateEl) emptyStateEl.textContent = DEFAULT_EMPTY_TEXT; } catch(e) {}
       renderCustomer(data.customer);
       renderOrders(data.orders);
-      // show main grid now that customer & orders are rendered
+      // render POS notes from customer (if any)
+      renderPosNotes(data.customer ? data.customer.notes : []);
+      // show main grid now that customer & orders are rendered (ensure emptyState hidden)
       try { const mainGrid = document.getElementById('mainGrid'); const emptyState = document.getElementById('emptyState'); if (mainGrid) mainGrid.classList.remove('hidden'); if (emptyState) emptyState.style.display = 'none'; } catch(e) {}
       // show loading indicator for exchanges area while we fetch them
       try {
@@ -561,53 +632,93 @@
         // Try to create via backend into Lark if we have table context
         try {
           const ctx = window._lastExchangeContext || {};
-            if (ctx.baseId && ctx.tableId) {
+          // prepare POS payload (always call POS)
+          const customerId = lastCustomer ? lastCustomer.customerId : null;
+          let latestOrderId = null;
+          try { if (lastOrders && lastOrders.length>0) latestOrderId = lastOrders[0].orderId || lastOrders[0].systemId || null; } catch(e){}
+          const posPayload = { customerId: customerId, message: 'PK: ' + msg, orderId: latestOrderId };
+          console.log('[pos] create-note payload:', posPayload);
+          console.log('[pos] calling backend endpoint: /api/pos/create-note');
+          const posFetch = fetch('/api/pos/create-note', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(posPayload)
+          }).then(r => r.json()).catch(e => ({ error: e }));
+
+          // prepare Lark fetch (may be skipped if no context)
+          let larkFetch = Promise.resolve({ skipped: true });
+          if (ctx.baseId && ctx.tableId) {
             const payload = { content: 'PK: ' + msg, ngay: dateVal, linkRecordIds: ctx.linkRecordIds || [] };
-            fetch(`/api/lark/create-record?baseId=${encodeURIComponent(ctx.baseId)}&tableId=${encodeURIComponent(ctx.tableId)}`, {
+            larkFetch = fetch(`/api/lark/create-record?baseId=${encodeURIComponent(ctx.baseId)}&tableId=${encodeURIComponent(ctx.tableId)}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
-            }).then(r => r.json()).then(j => {
-              if (j && j.code === 0) {
-                // prepend created record to UI
-                try {
-                  const list = document.getElementById('conversationsList');
-                  if (list) {
-                    const node = document.createElement('div');
-                    node.className = 'bg-white p-3 rounded border border-slate-100 mb-3';
-                    const createdRaw = newRec.createdAt == null ? '' : String(newRec.createdAt);
-                    node.innerHTML = `<div class="text-sm text-slate-700 mb-1">${escapeHtml(newRec.content)}</div><div class="text-xs text-slate-400">Người: ${escapeHtml(newRec.customerName || '-')} • ${escapeHtml(createdRaw)}</div>`;
-                    list.insertBefore(node, list.firstChild);
-                  }
-                } catch (e) { console.warn('Could not append exchange locally', e); }
-              } else {
-                console.warn('Create record failed, fallback to local append', j);
-              }
-            }).catch(e => console.warn('Create record request failed, fallback to local', e));
-          } else {
-            // no table context — fallback to local-only behaviour
-            try {
-              const list = document.getElementById('conversationsList');
-              if (list) {
-                const node = document.createElement('div');
-                node.className = 'bg-white p-3 rounded border border-slate-100 mb-3';
-                const createdRaw = newRec.createdAt == null ? '' : String(newRec.createdAt);
-                node.innerHTML = `<div class="text-sm text-slate-700 mb-1">${escapeHtml(newRec.content)}</div><div class="text-xs text-slate-400">Người: ${escapeHtml(newRec.customerName || '-')} • ${escapeHtml(createdRaw)}</div>`;
-                list.insertBefore(node, list.firstChild);
-              }
-            } catch (e) { console.warn('Could not append exchange locally', e); }
+            }).then(r => r.json()).catch(e => ({ error: e }));
           }
+
+          Promise.allSettled([larkFetch, posFetch]).then(results => {
+            console.log('[pos] create-note results:', results);
+            const larkRes = results[0].status === 'fulfilled' ? results[0].value : { error: 'request failed' };
+            const posRes = results[1].status === 'fulfilled' ? results[1].value : { error: 'request failed' };
+            // handle lark result (prepend if success)
+            if (larkRes && larkRes.code === 0) {
+              try {
+                const list = document.getElementById('conversationsList');
+                if (list) {
+                  const node = document.createElement('div');
+                  node.className = 'bg-white p-3 rounded border border-slate-100 mb-3';
+                  const createdRaw = newRec.createdAt == null ? '' : String(newRec.createdAt);
+                  node.innerHTML = `<div class="text-sm text-slate-700 mb-1">${escapeHtml(newRec.content)}</div><div class="text-xs text-slate-400">Người: ${escapeHtml(newRec.customerName || '-')} • ${escapeHtml(createdRaw)}</div>`;
+                  list.insertBefore(node, list.firstChild);
+                }
+              } catch (e) { console.warn('Could not append exchange locally', e); }
+            } else if (larkRes && larkRes.skipped) {
+              // no-op
+            } else {
+              console.warn('Lark create failed', larkRes);
+              // fallback: append locally
+              try {
+                const list = document.getElementById('conversationsList');
+                if (list) {
+                  const node = document.createElement('div');
+                  node.className = 'bg-white p-3 rounded border border-slate-100 mb-3';
+                  const createdRaw = newRec.createdAt == null ? '' : String(newRec.createdAt);
+                  node.innerHTML = `<div class="text-sm text-slate-700 mb-1">${escapeHtml(newRec.content)}</div><div class="text-xs text-slate-400">Người: ${escapeHtml(newRec.customerName || '-')} • ${escapeHtml(createdRaw)}</div>`;
+                  list.insertBefore(node, list.firstChild);
+                }
+              } catch (e) {}
+            }
+            if (posRes && posRes.code === 0) {
+              console.log('POS note created', posRes.data);
+            } else {
+              console.warn('POS create-note failed', posRes);
+            }
+          });
         } catch (e) { console.warn('Error creating exchange', e); }
         closeExchangeModal();
+      });
+    }
+  } catch (e) {}
+  // POS notes header toggle (collapse/expand)
+  try {
+    const posHeader = document.getElementById('posNotesHeader');
+    const posList = document.getElementById('posNotesList');
+    const posIcon = document.getElementById('posNotesToggleIcon');
+    if (posHeader && posList && posIcon) {
+      posHeader.addEventListener('click', () => {
+        try {
+          posList.classList.toggle('hidden');
+          posIcon.classList.toggle('rotate-90');
+        } catch (e) {}
       });
     }
   } catch (e) {}
     // render fake conversations immediately for UI testing
     try {
       const sampleConvosInitial = [
-        { content: 'Khách hỏi về chương trình khuyến mãi, đã tư vấn', name: 'Trần A', createdAt: Date.now() - 1000 * 60 * 60 * 24 },
-        { content: 'CSKH gọi nhắc lịch lấy thuốc', name: 'CSKH B', createdAt: Date.now() - 1000 * 60 * 60 * 4 },
-        { content: 'Khách xác nhận nhận thuốc', name: 'Khách C', createdAt: Date.now() - 1000 * 60 * 30 }
+        // { content: 'Khách hỏi về chương trình khuyến mãi, đã tư vấn', name: 'Trần A', createdAt: Date.now() - 1000 * 60 * 60 * 24 },
+        // { content: 'CSKH gọi nhắc lịch lấy thuốc', name: 'CSKH B', createdAt: Date.now() - 1000 * 60 * 60 * 4 },
+        // { content: 'Khách xác nhận nhận thuốc', name: 'Khách C', createdAt: Date.now() - 1000 * 60 * 30 }
       ];
       renderConversations(sampleConvosInitial);
     } catch (e) {}

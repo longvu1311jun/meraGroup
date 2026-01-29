@@ -74,6 +74,12 @@ public class authenController {
 
   @Value("${lark.redirect-uri}")
   private String redirectUri;
+ 
+  @Value("${pos.base-url}")
+  private String posBaseUrl;
+
+  @Value("${pos.api-key}")
+  private String posApiKey;
 
   private final LarkTokenService tokenService;
   private final PosService posService;
@@ -800,6 +806,65 @@ public class authenController {
       return ResponseEntity.ok(resp);
     } catch (Exception e) {
       log.error("Error in /api/lark/create-record: {}", e.getMessage(), e);
+      resp.put("error", e.getMessage());
+      return ResponseEntity.status(500).body(resp);
+    }
+  }
+
+  /**
+   * Create a POS customer note via POS API.
+   * Expects JSON body: { "customerId": "...", "message": "...", "orderId": "..." }
+   */
+  @PostMapping("/api/pos/create-note")
+  @ResponseBody
+  public ResponseEntity<Map<String, Object>> createPosNote(@RequestBody Map<String, Object> req,
+      HttpSession session) {
+    Map<String, Object> resp = new HashMap<>();
+    if (!tokenService.hasToken(session)) {
+      resp.put("error", "Vui lòng đăng nhập trước");
+      return ResponseEntity.status(401).body(resp);
+    }
+    try {
+      tokenService.autoRefreshTokenIfNeeded(session);
+      ObjectMapper mapper = new ObjectMapper();
+      log.info("Received /api/pos/create-note request body: {}", mapper.writeValueAsString(req));
+      String customerId = req.get("customerId") == null ? "" : String.valueOf(req.get("customerId"));
+      String message = req.get("message") == null ? "" : String.valueOf(req.get("message"));
+      Object orderIdObj = req.get("orderId");
+      String orderId = orderIdObj == null ? "" : String.valueOf(orderIdObj);
+
+      if (customerId.isBlank()) {
+        resp.put("error", "Missing customerId");
+        return ResponseEntity.badRequest().body(resp);
+      }
+
+      String url = posBaseUrl;
+      if (!url.endsWith("/")) url += "/";
+      url += "customers/" + URLEncoder.encode(customerId, StandardCharsets.UTF_8) + "/create_note?api_key=" + URLEncoder.encode(posApiKey, StandardCharsets.UTF_8);
+
+      Map<String, Object> body = new HashMap<>();
+      body.put("message", message);
+      if (orderId != null && !orderId.isBlank()) body.put("order_id", orderId);
+
+      HttpHeaders headers = new HttpHeaders();
+      headers.setContentType(MediaType.APPLICATION_JSON);
+      HttpEntity<String> entity = new HttpEntity<>(mapper.writeValueAsString(body), headers);
+
+      RestTemplate rt = new RestTemplate();
+      log.info("Calling POS create_note URL={} body={}", url, mapper.writeValueAsString(body));
+      ResponseEntity<String> r = rt.postForEntity(url, entity, String.class);
+      log.info("POS create_note response status={} body={}", r.getStatusCodeValue(), r.getBody());
+      if (!r.getStatusCode().is2xxSuccessful() || r.getBody() == null) {
+        resp.put("error", "POS create note failed: " + r.getStatusCodeValue());
+        return ResponseEntity.status(500).body(resp);
+      }
+      Map<?, ?> created = mapper.readValue(r.getBody(), Map.class);
+      resp.put("code", 0);
+      resp.put("data", created);
+      resp.put("msg", "ok");
+      return ResponseEntity.ok(resp);
+    } catch (Exception e) {
+      log.error("Error in /api/pos/create-note: {}", e.getMessage(), e);
       resp.put("error", e.getMessage());
       return ResponseEntity.status(500).body(resp);
     }

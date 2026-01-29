@@ -116,7 +116,8 @@ public class SearchService {
     JsonNode customerNode = dataNode.get(0);
 
     CustomerInfo customerInfo = new CustomerInfo();
-    customerInfo.setCustomerId(asText(customerNode, "id"));
+    // POS returns a field 'customer_id' which should be used as customerId
+    customerInfo.setCustomerId(asText(customerNode, "customer_id"));
     customerInfo.setName(asText(customerNode, "name"));
     customerInfo.setPhone(extractPhone(customerNode.path("phone_numbers")));
     // Try to read full_address from top-level first, otherwise fallback to shop_customer_addresses[0].full_address
@@ -162,6 +163,23 @@ public class SearchService {
       CustomerNoteInfo note = new CustomerNoteInfo();
       note.setMessage(asText(noteNode, "message"));
       note.setOrderId(asText(noteNode, "order_id"));
+      // created_at may be number (ms) or string — format to readable if numeric
+      String createdAtStr = null;
+      try {
+        JsonNode ca = noteNode.get("created_at");
+        if (ca != null && !ca.isNull()) {
+          if (ca.isNumber()) {
+            long epoch = ca.asLong();
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm");
+            createdAtStr = sdf.format(new java.util.Date(epoch));
+          } else {
+            createdAtStr = ca.asText();
+          }
+        }
+      } catch (Exception e) {
+        // ignore formatting errors
+      }
+      note.setCreatedAt(createdAtStr);
       notes.add(note);
     }
     return notes;
@@ -248,7 +266,8 @@ public class SearchService {
     }
 
     Customer customer = new Customer();
-    customer.setCustomerId(asText(node, "id"));
+    // Use 'customer_id' from POS API
+    customer.setCustomerId(asText(node, "customer_id"));
     customer.setName(asText(node, "name"));
     customer.setFacebookLink(asText(node, "fb_id"));
     customer.setPhone(extractPhone(node.path("phone_numbers")));

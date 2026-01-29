@@ -12,4 +12,5 @@ import lombok.ToString;
 public class CustomerNoteInfo {
     private String message;
     private String orderId;
+    private String createdAt;
 }

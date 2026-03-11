@@ -112,7 +112,7 @@ public class authenController {
     }
   }
 
-  @GetMapping("/")
+  @GetMapping("/admin")
   public String index(Model model, HttpSession session) {
     String baseUrl = "https://open.larksuite.com/open-apis/authen/v1/index";
 
@@ -320,10 +320,13 @@ public class authenController {
   @GetMapping("/stats")
   public String stats(
       @RequestParam(value = "customerMonth", required = false, defaultValue = "CurrentMonth") String customerMonth,
-      Model model, 
+      Model model,
       HttpSession session) {
+    // Nếu chưa đăng nhập, hiển thị thông báo liên hệ admin
     if (!tokenService.hasToken(session)) {
-      return "redirect:/";
+      model.addAttribute("customerMonth", customerMonth);
+      model.addAttribute("requiresAuth", true);
+      return "stats";
     }
 
     // ✅ Render view ngay, không chờ data

@@ -66,9 +66,11 @@ public class SaleReportController {
       Model model,
       HttpSession session
   ) {
-    // ✅ Render view ngay, không chờ data
+    // Nếu chưa đăng nhập, hiển thị thông báo liên hệ admin
+    boolean hasToken = tokenService.hasToken(session);
     model.addAttribute("range", range);
-    model.addAttribute("hasToken", tokenService.hasToken(session));
+    model.addAttribute("hasToken", hasToken);
+    model.addAttribute("requiresAuth", !hasToken);
     return "saleReport";
   }
 
